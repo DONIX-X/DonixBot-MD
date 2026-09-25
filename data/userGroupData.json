@@ -1,0 +1,14 @@
+{
+  "users": [],
+  "groups": [],
+  "antilink": {},
+  "antibadword": {},
+  "warnings": {},
+  "sudo": [],
+  "welcome": {},
+  "goodbye": {},
+  "chatbot": {
+    "120363316474622775@g.us": true
+  },
+  "autoReaction": false
+}

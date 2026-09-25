@@ -1,0 +1,7 @@
+Donix Bot MD branding update
+Owner: DONIX
+Prefix: .
+WhatsApp channel: https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o
+GitHub profile: https://github.com/DONIX-X
+ownerNumber was intentionally left unchanged.
+No new WhatsApp newsletter JID was invented; the existing JID in the project was preserved.
