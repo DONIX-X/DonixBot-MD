@@ -227,6 +227,23 @@ Join our channel for updates.`;
     try {
         const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
         const channelLink = settings.channelLink || global.channelLink;
+        const channelContext = {
+            forwardingScore: 1,
+            isForwarded: true
+        };
+        try {
+            const inviteCode = new URL(channelLink).pathname.split('/').filter(Boolean).pop();
+            const channel = await sock.newsletterMetadata('invite', inviteCode);
+            if (channel?.id) {
+                channelContext.forwardedNewsletterMessageInfo = {
+                    newsletterJid: channel.id,
+                    newsletterName: channel.name || settings.botName || 'Donix Bot MD',
+                    serverMessageId: -1
+                };
+            }
+        } catch (channelError) {
+            console.error('[HELP] channel preview unavailable:', channelError.message);
+        }
         
         if (fs.existsSync(imagePath)) {
             const imageBuffer = fs.readFileSync(imagePath);
@@ -234,35 +251,13 @@ Join our channel for updates.`;
             await sock.sendMessage(chatId, {
                 image: imageBuffer,
                 caption: helpMessage,
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true,
-                    externalAdReply: {
-                        title: settings.botName || 'Donix Bot MD',
-                        body: 'Follow our WhatsApp channel for updates',
-                        mediaType: 1,
-                        sourceUrl: channelLink,
-                        showAdAttribution: false,
-                        renderLargerThumbnail: true
-                    }
-                }
+                contextInfo: channelContext
             },{ quoted: message });
         } else {
             console.error('Bot image not found at:', imagePath);
             await sock.sendMessage(chatId, { 
                 text: helpMessage,
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true,
-                    externalAdReply: {
-                        title: settings.botName || 'Donix Bot MD',
-                        body: 'Follow our WhatsApp channel for updates',
-                        mediaType: 1,
-                        sourceUrl: channelLink,
-                        showAdAttribution: false,
-                        renderLargerThumbnail: true
-                    }
-                }
+                contextInfo: channelContext
             });
         }
     } catch (error) {

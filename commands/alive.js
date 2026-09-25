@@ -12,20 +12,27 @@ async function aliveCommand(sock, chatId, message) {
                        `• And more!\n\n` +
                        `Type *.menu* for full command list`;
 
+        const channelContext = {
+            forwardingScore: 999,
+            isForwarded: true
+        };
+        try {
+            const inviteCode = new URL(settings.channelLink).pathname.split('/').filter(Boolean).pop();
+            const channel = await sock.newsletterMetadata('invite', inviteCode);
+            if (channel?.id) {
+                channelContext.forwardedNewsletterMessageInfo = {
+                    newsletterJid: channel.id,
+                    newsletterName: channel.name || settings.botName || 'Donix Bot MD',
+                    serverMessageId: -1
+                };
+            }
+        } catch (channelError) {
+            console.error('[ALIVE] channel preview unavailable:', channelError.message);
+        }
+
         await sock.sendMessage(chatId, {
             text: message1,
-            contextInfo: {
-                forwardingScore: 999,
-                isForwarded: true,
-                externalAdReply: {
-                    title: settings.botName || 'Donix Bot MD',
-                    body: 'Follow our WhatsApp channel for updates',
-                    mediaType: 1,
-                    sourceUrl: settings.channelLink,
-                    showAdAttribution: false,
-                    renderLargerThumbnail: true
-                }
-                }
+            contextInfo: channelContext
         }, { quoted: message });
     } catch (error) {
         console.error('Error in alive command:', error);
