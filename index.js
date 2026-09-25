@@ -89,6 +89,7 @@ const question = (text) => {
     }
 }
 
+let reconnectInProgress = false
 
 async function startXeonBotInc() {
     try {
@@ -297,9 +298,16 @@ async function startXeonBotInc() {
             }
             
             if (shouldReconnect) {
+                if (reconnectInProgress) return
+                reconnectInProgress = true
                 console.log(chalk.yellow('Reconnecting...'))
-                await delay(5000)
-                startXeonBotInc()
+                try {
+                    await delay(5000)
+                    await XeonBotInc.ws?.close()
+                    await startXeonBotInc()
+                } finally {
+                    reconnectInProgress = false
+                }
             }
         }
     })
