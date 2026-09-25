@@ -284,8 +284,16 @@ async function startXeonBotInc() {
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut
             const statusCode = lastDisconnect?.error?.output?.statusCode
+            const isConflict = statusCode === DisconnectReason.connectionReplaced ||
+                String(lastDisconnect?.error || '').toLowerCase().includes('conflict')
             
             console.log(chalk.red(`Connection closed due to ${lastDisconnect?.error}, reconnecting ${shouldReconnect}`))
+
+            if (isConflict) {
+                console.error(chalk.red('WhatsApp session conflict detected. Stop other bot instances before restarting.'))
+                setTimeout(() => process.exit(1), 1000)
+                return
+            }
             
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 try {
