@@ -238,7 +238,8 @@ Join our channel for updates.`;
                 channelContext.forwardedNewsletterMessageInfo = {
                     newsletterJid: channel.id,
                     newsletterName: channel.name || settings.botName || 'Donix Bot MD',
-                    serverMessageId: -1
+                    serverMessageId: -1,
+                    contentType: 3
                 };
             }
         } catch (channelError) {
