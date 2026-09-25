@@ -27,7 +27,6 @@ setInterval(() => {
 
 const settings = require('./settings');
 const { isCommandAllowed } = require('./lib/commandAllowlist');
-const { getButtonResponseId } = require('./lib/buttonResponse');
 require('./config.js');
 const { isBanned } = require('./lib/isBanned');
 const yts = require('yt-search');
@@ -187,18 +186,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const senderIsSudo = await isSudo(senderId);
         const senderIsOwnerOrSudo = await isOwnerOrSudo(senderId, sock, chatId);
 
-        // Handle legacy and native-flow button responses
-        const buttonId = getButtonResponseId(message);
-        if (buttonId) {
+        // Handle button responses
+        if (message.message?.buttonsResponseMessage) {
+            const buttonId = message.message.buttonsResponseMessage.selectedButtonId;
             const chatId = message.key.remoteJid;
 
-            if (buttonId === 'ping_all_commands') {
-                await helpCommand(sock, chatId, message, 'all');
-                return;
-            } else if (buttonId === 'ping_available_commands') {
-                await helpCommand(sock, chatId, message, 'available');
-                return;
-            } else if (buttonId === 'channel') {
+            if (buttonId === 'channel') {
                 await sock.sendMessage(chatId, {
                     text: `📢 *Join our Channel:*\n${global.channelLink}`
                 }, { quoted: message });
@@ -300,12 +293,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         // Then check for command prefix
         if (!userMessage.startsWith('.')) {
-            if (userMessage === 'all commands' || userMessage === 'available commands') {
-                const menuType = userMessage === 'all commands' ? 'all' : 'available';
-                await helpCommand(sock, chatId, message, menuType);
-                return;
-            }
-
             // Show typing indicator if autotyping is enabled
             await handleAutotypingForMessage(sock, chatId, userMessage);
 
@@ -435,7 +422,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await unbanCommand(sock, chatId, message);
                 break;
             case userMessage === '.help' || userMessage === '.menu' || userMessage === '.bot' || userMessage === '.list':
-                await helpCommand(sock, chatId, message, global.channelLink);
+                await helpCommand(sock, chatId, message, 'available', true);
                 commandExecuted = true;
                 break;
             case userMessage === '.sticker' || userMessage === '.s':
