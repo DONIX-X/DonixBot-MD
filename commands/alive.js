@@ -17,6 +17,14 @@ async function aliveCommand(sock, chatId, message) {
             contextInfo: {
                 forwardingScore: 999,
                 isForwarded: true,
+                externalAdReply: {
+                    title: settings.botName || 'Donix Bot MD',
+                    body: 'Follow our WhatsApp channel for updates',
+                    mediaType: 1,
+                    sourceUrl: settings.channelLink,
+                    showAdAttribution: false,
+                    renderLargerThumbnail: true
+                }
                 }
         }, { quoted: message });
     } catch (error) {

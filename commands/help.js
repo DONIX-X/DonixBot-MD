@@ -226,16 +226,7 @@ Join our channel for updates.`;
 
     try {
         const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
-        const channelButton = {
-            footer: 'WhatsApp Channel',
-            templateButtons: [{
-                index: 1,
-                urlButton: {
-                    displayText: 'Join Channel',
-                    url: settings.channelLink || global.channelLink
-                }
-            }]
-        };
+        const channelLink = settings.channelLink || global.channelLink;
         
         if (fs.existsSync(imagePath)) {
             const imageBuffer = fs.readFileSync(imagePath);
@@ -246,8 +237,15 @@ Join our channel for updates.`;
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true,
-                    },
-                ...channelButton
+                    externalAdReply: {
+                        title: settings.botName || 'Donix Bot MD',
+                        body: 'Follow our WhatsApp channel for updates',
+                        mediaType: 1,
+                        sourceUrl: channelLink,
+                        showAdAttribution: false,
+                        renderLargerThumbnail: true
+                    }
+                }
             },{ quoted: message });
         } else {
             console.error('Bot image not found at:', imagePath);
@@ -256,8 +254,15 @@ Join our channel for updates.`;
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true,
-                    },
-                ...channelButton
+                    externalAdReply: {
+                        title: settings.botName || 'Donix Bot MD',
+                        body: 'Follow our WhatsApp channel for updates',
+                        mediaType: 1,
+                        sourceUrl: channelLink,
+                        showAdAttribution: false,
+                        renderLargerThumbnail: true
+                    }
+                }
             });
         }
     } catch (error) {
