@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -182,6 +182,15 @@ async function restartProcess(sock, chatId, message) {
         await run('pm2 restart all');
     } catch {}
     setTimeout(() => {
+        if (!process.env.pm_id && !process.env.PM2_HOME) {
+            const child = spawn(process.execPath, process.argv.slice(1), {
+                cwd: process.cwd(),
+                env: process.env,
+                detached: true,
+                stdio: 'ignore'
+            });
+            child.unref();
+        }
         process.exit(0);
     }, 1000);
 }
