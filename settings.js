@@ -10,6 +10,7 @@ const settings = {
   storeWriteInterval: 10000,
   description: "This is a bot for managing group commands and automating tasks.",
   version: "1.0",
+  channelLink: "https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o",
   updateZipUrl: "https://github.com/DONIX-X/DonixBot-MD/archive/refs/heads/main.zip",
 };
 

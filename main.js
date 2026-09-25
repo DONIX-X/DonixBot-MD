@@ -146,7 +146,7 @@ const soraCommand = require('./commands/sora');
 // Global settings
 global.packname = settings.packname;
 global.author = settings.author;
-global.channelLink = "https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o";
+global.channelLink = settings.channelLink;
 global.ytch = "DONIX";
 
 // Add this near the top of main.js with other global configurations
@@ -192,7 +192,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
             if (buttonId === 'channel') {
                 await sock.sendMessage(chatId, {
-                    text: '📢 *Join our Channel:*\nhttps://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o'
+                    text: `📢 *Join our Channel:*\n${global.channelLink}`
                 }, { quoted: message });
                 return;
             } else if (buttonId === 'owner') {

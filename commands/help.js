@@ -256,7 +256,7 @@ Join our channel for updates.`;
                 index: 1,
                 urlButton: {
                     displayText: 'Join Channel',
-                    url: global.channelLink || 'https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o'
+                    url: settings.channelLink || global.channelLink
                 }
             }]
         }, { quoted: message });
