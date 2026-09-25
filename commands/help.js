@@ -222,7 +222,7 @@ async function helpCommand(sock, chatId, message) {
 ║ ➤ .repo
 ╚═══════════════════╝
 
-Join our channel for updates:\n${global.channelLink || 'https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o'}`;
+Join our channel for updates.`;
 
     try {
         const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
@@ -248,6 +248,18 @@ Join our channel for updates:\n${global.channelLink || 'https://whatsapp.com/cha
                     }
             });
         }
+
+        await sock.sendMessage(chatId, {
+            text: 'Stay updated with Donix Bot MD',
+            footer: 'WhatsApp Channel',
+            templateButtons: [{
+                index: 1,
+                urlButton: {
+                    displayText: 'Join Channel',
+                    url: global.channelLink || 'https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o'
+                }
+            }]
+        }, { quoted: message });
     } catch (error) {
         console.error('Error in help command:', error);
         await sock.sendMessage(chatId, { text: helpMessage });
