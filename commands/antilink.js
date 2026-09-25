@@ -9,12 +9,12 @@ async function handleAntilinkCommand(sock, chatId, userMessage, senderId, isSend
             return;
         }
 
-        const prefix = '.';
-        const args = userMessage.slice(9).toLowerCase().trim().split(' ');
+        const prefix = '.antilink';
+        const args = userMessage.slice(prefix.length).toLowerCase().trim().split(' ');
         const action = args[0];
 
         if (!action) {
-            const usage = `\`\`\`ANTILINK SETUP\n\n${prefix}antilink on\n${prefix}antilink set delete | kick | warn\n${prefix}antilink off\n\`\`\``;
+            const usage = `\`\`\`ANTILINK SETUP\n\n${prefix} on\n${prefix} set delete | kick | warn\n${prefix} off\n\`\`\``;
             await sock.sendMessage(chatId, { text: usage }, { quoted: message });
             return;
         }
@@ -40,7 +40,7 @@ async function handleAntilinkCommand(sock, chatId, userMessage, senderId, isSend
             case 'set':
                 if (args.length < 2) {
                     await sock.sendMessage(chatId, { 
-                        text: `*_Please specify an action: ${prefix}antilink set delete | kick | warn_*` 
+                        text: `*_Please specify an action: ${prefix} set delete | kick | warn_*`
                     }, { quoted: message });
                     return;
                 }
@@ -66,7 +66,7 @@ async function handleAntilinkCommand(sock, chatId, userMessage, senderId, isSend
                 break;
 
             default:
-                await sock.sendMessage(chatId, { text: `*_Use ${prefix}antilink for usage._*` });
+                await sock.sendMessage(chatId, { text: `*_Use ${prefix} for usage._*` });
         }
     } catch (error) {
         console.error('Error in antilink command:', error);

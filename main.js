@@ -26,6 +26,7 @@ setInterval(() => {
 }, 3 * 60 * 60 * 1000);
 
 const settings = require('./settings');
+const { isCommandAllowed } = require('./lib/commandAllowlist');
 require('./config.js');
 const { isBanned } = require('./lib/isBanned');
 const yts = require('yt-search');
@@ -309,6 +310,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
         // In private mode, only owner/sudo can run commands
         if (!isPublic && !isOwnerOrSudoCheck) {
+            return;
+        }
+
+        const commandName = userMessage.split(/\s+/, 1)[0];
+        if (!isCommandAllowed(commandName)) {
+            await sock.sendMessage(chatId, {
+                text: '❌ This command is disabled or unavailable. Use .menu to see enabled commands.'
+            }, { quoted: message });
             return;
         }
 
@@ -671,7 +680,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage === '.alive':
                 await aliveCommand(sock, chatId, message);
                 break;
-            case userMessage.startsWith('.mention '):
+            case userMessage === '.mention' || userMessage.startsWith('.mention '):
                 {
                     const args = userMessage.split(' ').slice(1).join(' ');
                     const isOwner = message.key.fromMe || senderIsSudo;
