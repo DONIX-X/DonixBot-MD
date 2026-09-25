@@ -300,6 +300,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         // Then check for command prefix
         if (!userMessage.startsWith('.')) {
+            if (userMessage === 'all commands' || userMessage === 'available commands') {
+                const menuType = userMessage === 'all commands' ? 'all' : 'available';
+                await helpCommand(sock, chatId, message, menuType);
+                return;
+            }
+
             // Show typing indicator if autotyping is enabled
             await handleAutotypingForMessage(sock, chatId, userMessage);
 

@@ -36,43 +36,41 @@ async function pingCommand(sock, chatId, message) {
 ┃ 🔖 Version  : v${settings.version}
 ┗━━━━━━━━━━━━━━━━━━━┛`.trim();
 
-        await sock.sendMessage(chatId, { text: botInfo }, { quoted: message });
+        await sock.sendMessage(chatId, {
+            text: `${botInfo}\n\nIf the menu button is unavailable, reply ALL COMMANDS or AVAILABLE COMMANDS.`
+        }, { quoted: message });
 
         const userJid = sock.user?.id;
         try {
-            const nativeFlowMessage = proto.Message.InteractiveMessage.create({
-                header: proto.Message.InteractiveMessage.Header.create({
-                    title: 'Donix Bot MD',
-                    hasMediaAttachment: false
-                }),
-                body: proto.Message.InteractiveMessage.Body.create({ text: 'Choose a command menu.' }),
-                footer: proto.Message.InteractiveMessage.Footer.create({ text: 'Donix Bot MD' }),
-                nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
-                    messageVersion: 1,
-                    buttons: [
-                        {
-                            name: 'quick_reply',
-                            buttonParamsJson: JSON.stringify({ display_text: 'All Commands', id: 'ping_all_commands' })
-                        },
-                        {
-                            name: 'quick_reply',
-                            buttonParamsJson: JSON.stringify({ display_text: 'Available Commands', id: 'ping_available_commands' })
-                        }
+            const listMessage = proto.Message.ListMessage.create({
+                title: 'Donix Bot MD',
+                description: 'Choose which command list to view.',
+                buttonText: 'Choose Menu',
+                footerText: 'Donix Bot MD',
+                listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,
+                sections: [proto.Message.ListMessage.Section.create({
+                    title: 'Command Menus',
+                    rows: [
+                        proto.Message.ListMessage.Row.create({
+                            title: 'All Commands',
+                            description: 'Show the full command catalogue',
+                            rowId: 'ping_all_commands'
+                        }),
+                        proto.Message.ListMessage.Row.create({
+                            title: 'Available Commands',
+                            description: 'Show commands enabled in this bot',
+                            rowId: 'ping_available_commands'
+                        })
                     ]
-                })
+                })]
             });
-            const interactiveMessage = generateWAMessageFromContent(chatId, {
-                viewOnceMessage: {
-                    message: {
-                        messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
-                        interactiveMessage: nativeFlowMessage
-                    }
-                }
+            const menuMessage = generateWAMessageFromContent(chatId, {
+                listMessage
             }, {
                 userJid,
                 messageId: generateMessageIDV2(userJid)
             });
-            await sock.relayMessage(chatId, interactiveMessage.message, { messageId: interactiveMessage.key.id });
+            await sock.relayMessage(chatId, menuMessage.message, { messageId: menuMessage.key.id });
         } catch (interactiveError) {
             console.error('Could not send ping menu buttons:', interactiveError);
             await sock.sendMessage(chatId, {
