@@ -226,6 +226,16 @@ Join our channel for updates.`;
 
     try {
         const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
+        const channelButton = {
+            footer: 'WhatsApp Channel',
+            templateButtons: [{
+                index: 1,
+                urlButton: {
+                    displayText: 'Join Channel',
+                    url: settings.channelLink || global.channelLink
+                }
+            }]
+        };
         
         if (fs.existsSync(imagePath)) {
             const imageBuffer = fs.readFileSync(imagePath);
@@ -236,7 +246,8 @@ Join our channel for updates.`;
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true,
-                    }
+                    },
+                ...channelButton
             },{ quoted: message });
         } else {
             console.error('Bot image not found at:', imagePath);
@@ -245,21 +256,10 @@ Join our channel for updates.`;
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true,
-                    }
+                    },
+                ...channelButton
             });
         }
-
-        await sock.sendMessage(chatId, {
-            text: 'Stay updated with Donix Bot MD',
-            footer: 'WhatsApp Channel',
-            templateButtons: [{
-                index: 1,
-                urlButton: {
-                    displayText: 'Join Channel',
-                    url: settings.channelLink || global.channelLink
-                }
-            }]
-        }, { quoted: message });
     } catch (error) {
         console.error('Error in help command:', error);
         await sock.sendMessage(chatId, { text: helpMessage });
