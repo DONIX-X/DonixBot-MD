@@ -52,7 +52,7 @@ const store = require('./lib/lightweight_store')
 store.readFromFile()
 const settings = require('./settings')
 const { getStartupNotifyConfig } = require('./commands/startmsg')
-setInterval(() => store.writeToFile(), settings.storeWriteInterval || 10000)
+setInterval(() => store.writeToFile(), settings.storeWriteInterval || 30000)
 
 // Memory optimization - Force garbage collection if available
 setInterval(() => {
@@ -60,7 +60,7 @@ setInterval(() => {
         global.gc()
         console.log('🧹 Garbage collection completed')
     }
-}, 60_000) // every 1 minute
+}, 5 * 60_000) // every 5 minutes
 
 // Memory monitoring - Restart if RAM gets too high
 setInterval(() => {
@@ -69,7 +69,7 @@ setInterval(() => {
         console.log('⚠️ RAM too high (>400MB), restarting bot...')
         process.exit(1) // Panel will auto-restart
     }
-}, 30_000) // check every 30 seconds
+}, 60_000) // check once per minute
 
 let phoneNumber = "911234567890"
 let owner = JSON.parse(fs.readFileSync('./data/owner.json'))
@@ -116,9 +116,9 @@ async function startXeonBotInc() {
                 return msg?.message || ""
             },
             msgRetryCounterCache,
-            defaultQueryTimeoutMs: 60000,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 10000,
+            defaultQueryTimeoutMs: 30000,
+            connectTimeoutMs: 20000,
+            keepAliveIntervalMs: 5000,
         })
 
         // Save credentials when they update
@@ -297,8 +297,8 @@ async function startXeonBotInc() {
             console.log(chalk.red(`Connection closed due to ${lastDisconnect?.error}, reconnecting ${shouldReconnect}`))
 
             if (isConflict) {
-                console.error(chalk.red('WhatsApp session conflict detected. Stop other bot instances before restarting.'))
-                setTimeout(() => process.exit(1), 1000)
+                console.error(chalk.red('WhatsApp session conflict detected. Another instance is already connected to this WhatsApp account.'))
+                console.warn(chalk.yellow('The bot will not auto-restart itself for this conflict. Please stop the other instance or clear the session before starting again.'))
                 return
             }
             

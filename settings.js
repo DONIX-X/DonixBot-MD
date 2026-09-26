@@ -8,7 +8,7 @@ const settings = {
   commandMode: "private",
   startupNotifyChatId: "",
   maxStoreMessages: 20,
-  storeWriteInterval: 10000,
+  storeWriteInterval: 30000,
   description: "This is a bot for managing group commands and automating tasks.",
   version: "1.0.7",
   channelLink: "https://whatsapp.com/channel/0029Vb9eTDY1CYoMSAu3Jv0o",
