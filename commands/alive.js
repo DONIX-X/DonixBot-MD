@@ -1,4 +1,15 @@
+const fs = require('fs');
+const path = require('path');
 const settings = require("../settings");
+
+function getBotImagePath() {
+    const primary = path.join(__dirname, '../assets/bot_image.jpg');
+    const fallback = path.join(__dirname, '../assets/rapid.jpg');
+    if (fs.existsSync(primary)) return primary;
+    if (fs.existsSync(fallback)) return fallback;
+    return null;
+}
+
 async function aliveCommand(sock, chatId, message) {
     try {
         const message1 = `*🤖 Donix Bot is Active!*\n\n` +
@@ -10,7 +21,7 @@ async function aliveCommand(sock, chatId, message) {
                        `• Antilink Protection\n` +
                        `• Fun Commands\n` +
                        `• And more!\n\n` +
-                       `Type *.menu* for full command list`;
+                       `Type *.menu* to command list`;
 
         const channelContext = {
             forwardingScore: 999,
@@ -29,6 +40,16 @@ async function aliveCommand(sock, chatId, message) {
             }
         } catch (channelError) {
             console.error('[ALIVE] channel preview unavailable:', channelError.message);
+        }
+
+        const imagePath = getBotImagePath();
+        if (imagePath) {
+            await sock.sendMessage(chatId, {
+                image: fs.readFileSync(imagePath),
+                caption: message1,
+                contextInfo: channelContext
+            }, { quoted: message });
+            return;
         }
 
         await sock.sendMessage(chatId, {

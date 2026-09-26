@@ -4,6 +4,15 @@ const path = require('path');
 const { commandGroups } = require('../lib/commandAllowlist');
 const packageVersion = require('../package.json').version;
 
+function getBotImagePath() {
+    const primary = path.join(__dirname, '../assets/bot_image.jpg');
+    const fallback = path.join(__dirname, '../assets/rapid.jpg');
+
+    if (fs.existsSync(primary)) return primary;
+    if (fs.existsSync(fallback)) return fallback;
+    return null;
+}
+
 async function helpCommand(sock, chatId, message) {
     const menuSections = commandGroups.map(({ title, commands }) => [
         `╭━━━〔 ${title} 〕━━━╮`,
@@ -29,7 +38,7 @@ async function helpCommand(sock, chatId, message) {
     ].join('\n');
 
     try {
-        const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
+        const imagePath = getBotImagePath();
         const channelLink = settings.channelLink || global.channelLink;
         const channelContext = {
             forwardingScore: 1,
@@ -50,29 +59,23 @@ async function helpCommand(sock, chatId, message) {
             console.error('[HELP] channel preview unavailable:', channelError.message);
         }
 
-        if (helpMessage.length > 1024) {
+        if (imagePath) {
+            const imageBuffer = fs.readFileSync(imagePath);
+            const captionText = `${helpMessage}`;
+
             await sock.sendMessage(chatId, {
-                text: helpMessage,
+                image: imageBuffer,
+                caption: captionText,
                 contextInfo: channelContext
             }, { quoted: message });
             return;
         }
 
-        if (fs.existsSync(imagePath)) {
-            const imageBuffer = fs.readFileSync(imagePath);
-            
-            await sock.sendMessage(chatId, {
-                image: imageBuffer,
-                caption: helpMessage,
-                contextInfo: channelContext
-            },{ quoted: message });
-        } else {
-            console.error('Bot image not found at:', imagePath);
-            await sock.sendMessage(chatId, { 
-                text: helpMessage,
-                contextInfo: channelContext
-            });
-        }
+        console.error('Bot image not found in assets directory.');
+        await sock.sendMessage(chatId, { 
+            text: helpMessage,
+            contextInfo: channelContext
+        });
 
     } catch (error) {
         console.error('Error in help command:', error);

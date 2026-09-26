@@ -3,6 +3,15 @@ const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 
+function getBotImagePath() {
+  const primary = path.join(__dirname, '../assets/bot_image.jpg');
+  const fallback = path.join(__dirname, '../assets/rapid.jpg');
+
+  if (fs.existsSync(primary)) return primary;
+  if (fs.existsSync(fallback)) return fallback;
+  return null;
+}
+
 async function githubCommand(sock, chatId, message) {
   try {
     const profileUrl = 'https://github.com/DONIX-X';
@@ -19,9 +28,13 @@ async function githubCommand(sock, chatId, message) {
     txt += `✩  *Last Updated* : ${moment().format('DD/MM/YY - HH:mm:ss')}\n\n`;
     txt += `💥 *Donix Bot MD*`;
 
-    const imgPath = path.join(__dirname, '../assets/bot_image.jpg');
-    const imgBuffer = fs.readFileSync(imgPath);
+    const imgPath = getBotImagePath();
+    if (!imgPath) {
+      await sock.sendMessage(chatId, { text: txt }, { quoted: message });
+      return;
+    }
 
+    const imgBuffer = fs.readFileSync(imgPath);
     await sock.sendMessage(chatId, { image: imgBuffer, caption: txt }, { quoted: message });
   } catch (error) {
     console.error('GitHub command error:', error);
