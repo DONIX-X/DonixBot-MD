@@ -51,6 +51,7 @@ const store = require('./lib/lightweight_store')
 // Initialize store
 store.readFromFile()
 const settings = require('./settings')
+const { getStartupNotifyConfig } = require('./commands/startmsg')
 setInterval(() => store.writeToFile(), settings.storeWriteInterval || 10000)
 
 // Memory optimization - Force garbage collection if available
@@ -259,13 +260,19 @@ async function startXeonBotInc() {
 
             try {
                 const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-                await XeonBotInc.sendMessage(botNumber, {
-                    text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${new Date().toLocaleString()}\n✅ Status: Online and Ready!\n\n📢 Join our WhatsApp channel:\n${settings.channelLink}`,
-                    contextInfo: {
-                        forwardingScore: 1,
-                        isForwarded: true,
+                const startupConfig = getStartupNotifyConfig();
+                const notifyChatId = startupConfig.enabled && startupConfig.chatId
+                    ? startupConfig.chatId
+                    : botNumber;
+                if (notifyChatId) {
+                    await XeonBotInc.sendMessage(notifyChatId, {
+                        text: `🤖 𝐁𝐨𝐭 𝐂𝐨𝐧𝐧𝐞𝐜𝐭𝐞𝐝 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐥𝐲!\n\n⏰ 𝐓𝐢𝐦𝐞: ${new Date().toLocaleString()}\n✅ 𝐒𝐭𝐚𝐭𝐮𝐬: 𝐎𝐧𝐥𝐢𝐧𝐞 𝐚𝐧𝐝 𝐑𝐞𝐚𝐝𝐲!\n\n📢 𝐉𝐨𝐢𝐧 𝐨𝐮𝐫 𝐖𝐡𝐚𝐭𝐬𝐀𝐩𝐩 𝐜𝐡𝐚𝐧𝐧𝐞𝐥:\n${settings.channelLink}`,
+                        contextInfo: {
+                            forwardingScore: 1,
+                            isForwarded: true,
                         }
-                });
+                    });
+                }
             } catch (error) {
                 console.error('Error sending connection message:', error.message)
             }
