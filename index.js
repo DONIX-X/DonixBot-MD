@@ -71,23 +71,24 @@ setInterval(() => {
     }
 }, 60_000) // check once per minute
 
-let phoneNumber = "911234567890"
+let phoneNumber = process.env.PHONE_NUMBER || settings.ownerNumber || ""
 let owner = JSON.parse(fs.readFileSync('./data/owner.json'))
 
 global.botname = "Donix Bot MD"
 global.themeemoji = "•"
-const pairingCode = !!phoneNumber || process.argv.includes("--pairing-code")
-const useMobile = process.argv.includes("--mobile")
+const argv = process.argv.slice(2)
+const pairingCode = argv.includes("--pairing-code") || process.env.PAIRING_CODE === 'true' || process.env.USE_PAIRING_CODE === 'true'
+const useMobile = argv.includes("--mobile")
 
 // Only create readline interface if we're in an interactive environment
 const rl = process.stdin.isTTY ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null
 const question = (text) => {
-    if (rl) {
+    if (rl && !rl.closed) {
         return new Promise((resolve) => rl.question(text, resolve))
-    } else {
-        // In non-interactive environment, use ownerNumber from settings
-        return Promise.resolve(settings.ownerNumber || phoneNumber)
     }
+
+    // In non-interactive or already-closed environments, fall back to env/settings value
+    return Promise.resolve(process.env.PHONE_NUMBER || settings.ownerNumber || phoneNumber || '')
 }
 
 let reconnectInProgress = false
@@ -215,12 +216,19 @@ async function startXeonBotInc() {
         let phoneNumber
         if (!!global.phoneNumber) {
             phoneNumber = global.phoneNumber
+        } else if (process.env.PHONE_NUMBER) {
+            phoneNumber = process.env.PHONE_NUMBER
         } else {
             phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Please type your WhatsApp number 😍\nFormat: 6281376552730 (without + or spaces) : `)))
         }
 
         // Clean the phone number - remove any non-digit characters
-        phoneNumber = phoneNumber.replace(/[^0-9]/g, '')
+        phoneNumber = String(phoneNumber || '').replace(/[^0-9]/g, '')
+
+        if (!phoneNumber) {
+            console.log(chalk.red('Phone number is required to generate a pairing code.'))
+            process.exit(1)
+        }
 
         // Validate the phone number using awesome-phonenumber
         const pn = require('awesome-phonenumber');
@@ -271,21 +279,21 @@ async function startXeonBotInc() {
                             forwardingScore: 1,
                             isForwarded: true,
                         }
-                    });
+                    }, { getUrlInfo: async () => undefined });
                 }
             } catch (error) {
                 console.error('Error sending connection message:', error.message)
             }
 
             await delay(1999)
-            console.log(chalk.yellow(`\n\n                  ${chalk.bold.blue(`[ ${global.botname || 'Donix Bot MD'} ]`)}\n\n`))
-            console.log(chalk.cyan(`< ================================================== >`))
+            console.log(chalk.yellow(`\n\n                  ${chalk.bold.green(`[ ${global.botname || 'Donix Bot MD'} ]`)}\n\n`))
+            console.log(chalk.green(`< ================================================== >`))
             console.log(chalk.magenta(`\n${global.themeemoji || '•'} OWNER: DONIX`))
             console.log(chalk.magenta(`${global.themeemoji || '•'} GITHUB: DONIX-X`))
             console.log(chalk.magenta(`${global.themeemoji || '•'} WA NUMBER: ${owner}`))
             console.log(chalk.magenta(`${global.themeemoji || '•'} OWNER: DONIX`))
             console.log(chalk.green(`${global.themeemoji || '•'} 🤖 Bot Connected Successfully! ✅`))
-            console.log(chalk.blue(`Bot Version: ${settings.version}`))
+            console.log(`Bot Version: ${settings.version}`)
         }
         
         if (connection === 'close') {
@@ -298,7 +306,8 @@ async function startXeonBotInc() {
 
             if (isConflict) {
                 console.error(chalk.red('WhatsApp session conflict detected. Another instance is already connected to this WhatsApp account.'))
-                console.warn(chalk.yellow('The bot will not auto-restart itself for this conflict. Please stop the other instance or clear the session before starting again.'))
+                console.warn(chalk.yellow('Stop other instances and delete ./session before starting a fresh login.'))
+                console.warn(chalk.yellow('Pairing code: npm start | QR code: npm run start:qr'))
                 return
             }
             
@@ -406,10 +415,12 @@ process.on('unhandledRejection', (err) => {
     console.error('Unhandled Rejection:', err)
 })
 
-let file = require.resolve(__filename)
-fs.watchFile(file, () => {
-    fs.unwatchFile(file)
-    console.log(chalk.redBright(`Update ${__filename}`))
-    delete require.cache[file]
-    require(file)
-})
+if (process.argv.includes('--watch')) {
+    let file = require.resolve(__filename)
+    fs.watchFile(file, () => {
+        fs.unwatchFile(file)
+        console.log(chalk.redBright(`Update ${__filename}`))
+        delete require.cache[file]
+        require(file)
+    })
+}
