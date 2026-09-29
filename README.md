@@ -3,7 +3,7 @@
 An open-source, multi-device WhatsApp bot by [DONIX](https://github.com/DONIX-X), built with [Baileys](https://github.com/WhiskeySockets/Baileys). Donix Bot MD brings group administration, moderation, and chat utilities together in one Node.js project.
 
 <div align="center"> 
-  <img src="assets/bot_image.jpg" alt="Donix Bot MD" height="300">
+  <img src="assets/bot_image.jpg" alt="DONIX Bot MD logo" width="420">
 </div>
 
 <div align="center">
@@ -15,31 +15,7 @@ An open-source, multi-device WhatsApp bot by [DONIX](https://github.com/DONIX-X)
 </div>
 
 ---
-## 🚀 Steps to Deploy Bot
-
-### Step 1: Fork the Repository
-
-Click the button below to fork the Donix Bot repository to your GitHub account:
-
-<div align="center">
-  <a href="https://github.com/DONIX-X/DonixBot-MD/fork">
-    <img src="https://img.shields.io/badge/Fork-Repository-blue?style=for-the-badge" alt="Fork the repository"/>
-  </a>
-</div>
-
----
-
-### Step 2: Pair Your WhatsApp Account
-
-Set `PHONE_NUMBER` to your full international number without `+` or spaces, then start the bot with pairing-code login enabled. The code will appear in the bot logs. The default `npm start` command enables pairing-code login; use `npm run start:qr` for QR login instead. Keep your session files private and never commit them.
-
----
-
-### Step 3: Start the Bot
-
-Install dependencies with `npm install`, then run `npm start` for pairing-code login or `npm run start:qr` for QR login. See [Setup](#setup) for the complete local workflow.
-
-### Community
+## Community
 
 <div align="center">
   <a href="https://t.me/+3QhFUZHx-nhhZmY1">
@@ -70,39 +46,41 @@ Donix Bot MD is maintained by DONIX and uses Baileys to connect to WhatsApp's mu
 
 ---
 
-## 🛠️ Setup & Installation
+## Quick Start
 
-### Prerequisites
+### Requirements
 
-- Node.js installed on your system
-- Git installed (for cloning the repository)
+- Node.js 18 or newer
+- Git
 
-### Step-by-Step Setup
+### Install
 
-1. **Clone the repository:**
+1. Clone the repository and install dependencies:
 
     ```bash
     git clone https://github.com/DONIX-X/DonixBot-MD.git
     cd DonixBot-MD
-    ```
-
-2. **Install dependencies:**
-
-    ```bash
     npm install
     ```
 
-3. **Choose a login method and start the bot:**
+2. Start with a pairing code. Use your full international phone number with digits only:
 
-    ```bash
-  # Pairing code (default)
-  PHONE_NUMBER=15551234567 npm start
+   **Windows PowerShell**
+   ```powershell
+   $env:PHONE_NUMBER = "15551234567"
+   npm start
+   ```
 
-  # Or QR login
-  npm run start:qr
-    ```
+   **Linux or macOS**
+   ```bash
+   PHONE_NUMBER=15551234567 npm start
+   ```
 
-  On Windows PowerShell, set the number first with `$env:PHONE_NUMBER="15551234567"`, then run `npm start`. Follow the terminal prompts to link the account.
+   Enter the pairing code shown in the terminal in WhatsApp's Linked Devices settings.
+
+3. To use QR login instead, run `npm run start:qr` and scan the QR code shown in the terminal using WhatsApp's Linked Devices settings.
+
+Keep your session files and pairing codes private. Never commit them or share them in issue reports.
 
 ---
 
