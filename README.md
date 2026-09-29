@@ -1,20 +1,13 @@
-# 🤖 Donix Bot
+# DONIX | Donix Bot MD
 
-This is a WhatsApp bot built using the Baileys library for group management, including features like tagging all members, muting/unmuting, and many more. It's designed to help admins efficiently manage WhatsApp groups.
-
-<div align="center"> 
-  <a href="https://git.io/typing-svg"> 
-    <img src="https://readme-typing-svg.demolab.com?font=Ribeye&size=50&pause=1000&color=33ff00&center=true&width=910&height=100&lines=Donix-Bot;Multi+Device+Whatsapp+Bot;Coded+By+DONIX" alt="Typing SVG" />
-  </a> 
-</div> 
+An open-source, multi-device WhatsApp bot by [DONIX](https://github.com/DONIX-X), built with [Baileys](https://github.com/WhiskeySockets/Baileys). Donix Bot MD brings group administration, moderation, and chat utilities together in one Node.js project.
 
 <div align="center"> 
-  <a href="https://youtube.com/@mr_unique_hacker"> 
-    <img src="assets/bot_image.jpg" alt="Donix Bot MD" height="300"> 
-  </a> 
+  <img src="assets/bot_image.jpg" alt="Donix Bot MD" height="300">
 </div>
 
 <div align="center">
+  <a href="https://github.com/DONIX-X/DonixBot-MD/actions/workflows/ci.yml"><img src="https://github.com/DONIX-X/DonixBot-MD/actions/workflows/ci.yml/badge.svg" alt="CI status"/></a>
   <img src="https://img.shields.io/github/followers/DONIX-X?style=for-the-badge&label=Followers" alt="Followers"/>
   <img src="https://img.shields.io/github/stars/DONIX-X/DonixBot-MD?style=for-the-badge&label=Stars" alt="Stars"/>
   <img src="https://img.shields.io/github/forks/DONIX-X/DonixBot-MD?style=for-the-badge&label=Forks" alt="Forks"/>
@@ -22,29 +15,6 @@ This is a WhatsApp bot built using the Baileys library for group management, inc
 </div>
 
 ---
-<div>
-  <a href="https://www.rapidproxy.io/?ref=DonixBot" target="_blank">
-    <img src="assets/rapid.jpg" alt="RapidProxy" width="100%" />
-  </a>
-</div>
-
-<br>
-
-<div align="left">
-  <a href="https://www.rapidproxy.io/?ref=DonixBot" target="_blank"><b>RapidProxy</b></a> delivers fast, reliable proxy infrastructure for large-scale data operations. With high concurrency, non-expiring traffic, and AI-powered CAPTCHA bypass, it ensures efficient, uninterrupted data collection—trusted by developers worldwide.<br><br>
-  90M+ Residential IPs • Smart Rotation • High Success Rate • Built for Scale<br><br>
-  <b>Special Offer:</b> <a href="https://www.rapidproxy.io/?ref=DonixBot" target="_blank">Try it free</a> — Pricing from $0.65/GB with non-expiring traffic. Use code <b>RAPID10</b> for 10% off.
-</div>
-
-<br>
-
-<div align="left">
-  <a href="https://www.rapidproxy.io/?ref=DonixBot" target="_blank">
-    <img src="https://img.shields.io/badge/Try now-28a745?style=for-the-badge" alt="Try now"/>
-  </a>
-</div>
-
-
 ## 🚀 Steps to Deploy Bot
 
 ### Step 1: Fork the Repository
@@ -59,50 +29,17 @@ Click the button below to fork the Donix Bot repository to your GitHub account:
 
 ---
 
-### Step 2: Get Pair Code
+### Step 2: Pair Your WhatsApp Account
 
-Deploy the bot and easily connect it to your WhatsApp account by pair code. Click the button below to deploy the bot on Replit.
-
-<div align="center">
-  <a href="https://knight-bot-paircode.onrender.com" target="_blank">
-    <img src="https://img.shields.io/badge/GET%20PAIR%20CODE-Easy%20Method-ff4d4d?style=for-the-badge" alt="Generate Pair Code"/>
-  </a>
-</div>
-
-
-### After getting creds.json file, upload it to session folder
+Set `PHONE_NUMBER` to your full international number without `+` or spaces, then start the bot with pairing-code login enabled. The code will appear in the bot logs. The default `npm start` command enables pairing-code login; use `npm run start:qr` for QR login instead. Keep your session files private and never commit them.
 
 ---
 
-### Step 3: Deploy Now
+### Step 3: Start the Bot
 
-For further customization and setup guidance, click the button below:
+Install dependencies with `npm install`, then run `npm start` for pairing-code login or `npm run start:qr` for QR login. See [Setup](#setup) for the complete local workflow.
 
-<div align="center">
-  <a href="https://youtu.be/-oz_u1iMgf8">
-    <img src="https://img.shields.io/badge/Deploy Tutorial-dc3545?style=for-the-badge&logo=youtube" alt="YouTube Link"/>
-  </a>
-  <a href="https://bot-hosting.net/?aff=1068419752923508776">
-    <img src="https://img.shields.io/badge/Deploy on Panel-28a745?style=for-the-badge" alt="Deploy on Panel"/>
-  </a>
-</div>
-
-### Deploy on VPS
-
-<div align="center">
-  <a href="https://client.petrosky.io/aff.php?aff=394" target="_blank">
-    <img src="https://img.shields.io/badge/petrosky vps-0078E7?style=for-the-badge" alt="petrosky vps"/>
-  </a>
-</div>
-
-### Deploy on Below Panel
-<div align="center">
-<a href="https://dashboard.katabump.com/auth/login#d6b7d6" target="_blank">
-  <img src="https://img.shields.io/badge/Katabump-D6B7D6?style=for-the-badge&logo=server&logoColor=black" alt="Katabump"/>
-</a>
-</div>
-
-### Join Us
+### Community
 
 <div align="center">
   <a href="https://t.me/+3QhFUZHx-nhhZmY1">
@@ -119,19 +56,17 @@ For further customization and setup guidance, click the button below:
 
 - **Tag all group members** with the `.tagall` command
 - **Admin restricted usage** (Only group admins can use certain commands)
-- **Games** like Tic-Tac-Toe for interactive group engagement
 - **Text-to-Speech** with `.tts`
 - **Sticker creation** with `.sticker`
 - **Anti-link detection** for group safety
 - **Warn and manage group members** with admin control
+- **Utility, media, and AI commands** for group and direct chats
 
 ---
 
 ## 📖 About
 
-The Donix WhatsApp Bot assists group admins by providing them with tools to efficiently manage large WhatsApp groups. The bot uses the Baileys library to interact with the WhatsApp Web API and supports multi-device features.
-
-It is lightweight and can be easily customized to add more commands as per your requirements. The bot runs in a Node.js environment and provides QR code-based authentication to link your WhatsApp account.
+Donix Bot MD is maintained by DONIX and uses Baileys to connect to WhatsApp's multi-device service. It is a community project and is not an official WhatsApp product.
 
 ---
 
@@ -151,21 +86,23 @@ It is lightweight and can be easily customized to add more commands as per your 
     cd DonixBot-MD
     ```
 
-2. **Install the dependencies:**
+2. **Install dependencies:**
 
     ```bash
     npm install
     ```
 
-3. **Run the bot:**
+3. **Choose a login method and start the bot:**
 
     ```bash
-    node index.js
+  # Pairing code (default)
+  PHONE_NUMBER=15551234567 npm start
+
+  # Or QR login
+  npm run start:qr
     ```
 
-4. **Scan the QR code:**
-
-    Once the bot starts, a QR code will appear in the terminal. Scan this QR code using the Linked Devices feature in WhatsApp to connect your WhatsApp account with the bot.
+  On Windows PowerShell, set the number first with `$env:PHONE_NUMBER="15551234567"`, then run `npm start`. Follow the terminal prompts to link the account.
 
 ---
 
@@ -189,9 +126,9 @@ If you find this project helpful and want to support the developer, consider buy
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT) - see the [LICENSE](https://github.com/DONIX-X/DonixBot-MD/blob/main/LICENSE) file for details.
+This project is licensed under the [ISC License](LICENSE).
 
 ---
 
@@ -201,9 +138,9 @@ Contributions, issues, and feature requests are welcome! Feel free to check the 
 
 ---
 
-## 🌟 Show your support
+## Support
 
-If you like this project, please give it a [⭐️ star on GitHub](https://github.com/DONIX-X/DonixBot)!
+If Donix Bot MD is useful to you, consider starring the repository or supporting DONIX through [Buy Me a Coffee](https://buymeacoffee.com/DONIX-X).
 
 
 ## Credits
@@ -215,7 +152,7 @@ If you like this project, please give it a [⭐️ star on GitHub](https://githu
 
 ---
 
-## ⚠️ Important Warning
+## Important Notice
 
 **Note:** This bot is created for educational purposes only. This is NOT an official WhatsApp bot. Using this bot may lead to your WhatsApp account being banned. Use it at your own risk. The developers will not be responsible for any consequences or account bans that may occur while using this bot.
 
@@ -226,13 +163,6 @@ If you like this project, please give it a [⭐️ star on GitHub](https://githu
 - Do not spam people with this bot.
 - Do not use this bot to send bulk messages or for illegal purposes.
 - The developers assume no liability and are not responsible for any misuse or damage caused by this program.
-
-### License
-This project is licensed under the MIT License. However, you must:
-- Use this software in compliance with all applicable laws and regulations
-- Include original license and copyright notices
-- Credit original authors
-- Not use for spam or malicious purposes
 
 ## 📜 Copyright Notice
 
