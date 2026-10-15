@@ -8,10 +8,6 @@ An open-source, multi-device WhatsApp bot by [DONIX](https://github.com/DONIX-X)
 
 <div align="center">
   <a href="https://github.com/DONIX-X/DonixBot-MD/actions/workflows/ci.yml"><img src="https://github.com/DONIX-X/DonixBot-MD/actions/workflows/ci.yml/badge.svg" alt="CI status"/></a>
-  <img src="https://img.shields.io/github/followers/DONIX-X?style=for-the-badge&label=Followers" alt="Followers"/>
-  <img src="https://img.shields.io/github/stars/DONIX-X/DonixBot-MD?style=for-the-badge&label=Stars" alt="Stars"/>
-  <img src="https://img.shields.io/github/forks/DONIX-X/DonixBot-MD?style=for-the-badge&label=Forks" alt="Forks"/>
-  <img src="https://img.shields.io/github/watchers/DONIX-X/DonixBot-MD?style=for-the-badge&label=Watchers" alt="Watchers"/>
 </div>
 
 ---
