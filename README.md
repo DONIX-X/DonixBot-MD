@@ -2,13 +2,20 @@
 
 An open-source, multi-device WhatsApp bot by [DONIX](https://github.com/DONIX-X), built with [Baileys](https://github.com/WhiskeySockets/Baileys). Donix Bot MD brings group administration, moderation, and chat utilities together in one Node.js project.
 
+<div align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=30&pause=1000&color=00C853&center=true&vCenter=true&width=900&height=70&lines=Multi-device+WhatsApp+Bot%3BGroup+Management+%26+Moderation%3BMedia%2C+Utility+%26+AI+Commands" alt="Multi-device WhatsApp bot | Group management and moderation | Media, utility and AI commands"/>
+</div>
+
 <div align="center"> 
   <img src="assets/bot_image.jpg" alt="DONIX Bot MD logo" width="420">
 </div>
 
 <div align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=00C853&center=true&vCenter=true&width=700&lines=Multi-device+WhatsApp+Bot%3BGroup+Management+%26+Moderation%3BMedia%2C+Utility+%26+AI+Commands" alt="Multi-device WhatsApp bot | Group management and moderation | Media, utility and AI commands"/>
   <a href="https://github.com/DONIX-X/DonixBot-MD/actions/workflows/ci.yml"><img src="https://github.com/DONIX-X/DonixBot-MD/actions/workflows/ci.yml/badge.svg" alt="CI status"/></a>
+  <img src="https://img.shields.io/github/followers/DONIX-X?style=for-the-badge&label=Followers" alt="Followers"/>
+  <img src="https://img.shields.io/github/stars/DONIX-X/DonixBot-MD?style=for-the-badge&label=Stars" alt="Stars"/>
+  <img src="https://img.shields.io/github/forks/DONIX-X/DonixBot-MD?style=for-the-badge&label=Forks" alt="Forks"/>
+  <img src="https://img.shields.io/github/watchers/DONIX-X/DonixBot-MD?style=for-the-badge&label=Watchers" alt="Watchers"/>
 </div>
 
 ---
