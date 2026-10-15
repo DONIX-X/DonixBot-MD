@@ -1,6 +1,8 @@
 # DONIX | Donix Bot MD
 
-An open-source, multi-device WhatsApp bot by [DONIX](https://github.com/DONIX-X), built with [Baileys](https://github.com/WhiskeySockets/Baileys). Donix Bot MD brings group administration, moderation, and chat utilities together in one Node.js project.
+<div align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=00C853&center=true&vCenter=true&width=700&lines=Multi-device+WhatsApp+Bot;Group+Management+%26+Moderation;Media%2C+Utility+%26+AI+Commands" alt="Multi-device WhatsApp bot | Group management and moderation | Media, utility and AI commands"/>
+</div>
 
 <div align="center"> 
   <img src="assets/bot_image.jpg" alt="DONIX Bot MD logo" width="420">
