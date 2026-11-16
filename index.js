@@ -159,7 +159,7 @@ async function startXeonBotInc() {
 
             // Clear message retry cache to prevent memory bloat
             if (XeonBotInc?.msgRetryCounterCache) {
-                XeonBotInc.msgRetryCounterCache.clear()
+                XeonBotInc.msgRetryCounterCache.flushAll()
             }
 
             try {

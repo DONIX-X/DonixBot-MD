@@ -118,7 +118,7 @@ test('paired sessions dispatch incoming messages to the bot command handler', as
   let handledMessage = null;
   let retryCacheCleared = false;
   class RetryCache {
-    clear() {
+    flushAll() {
       retryCacheCleared = true;
     }
   }
@@ -169,7 +169,7 @@ test('paired-session handler errors are logged without replying into self-DM', a
       handleGroupParticipantUpdate: async () => {},
       handleStatus: async () => {},
       store: { bind: () => {} },
-      NodeCache: class { clear() {} }
+      NodeCache: class { flushAll() {} }
     });
 
     ev.emit('messages.upsert', {
