@@ -122,3 +122,64 @@ test('TTS command sends fetched audio without creating temp files', async () => 
     }
   }
 });
+
+test('vv unwraps and sends quoted view-once V2 images', async () => {
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const baileysModule = require.cache[baileysPath];
+  const originalBaileysExports = require(baileysPath);
+  const originalBaileysModuleExports = baileysModule.exports;
+  const commandPath = require.resolve('../commands/viewonce');
+  const originalCommandModule = require.cache[commandPath];
+  const media = { caption: 'view-once image', mimetype: 'image/jpeg' };
+  const sentMessages = [];
+  const quotedMessage = {
+    message: {
+      extendedTextMessage: {
+        contextInfo: {
+          quotedMessage: {
+            ephemeralMessage: {
+              message: {
+                viewOnceMessageV2: {
+                  message: { imageMessage: media }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadContentFromMessage: async (content, type) => {
+      assert.equal(content, media);
+      assert.equal(type, 'image');
+      return (async function* () {
+        yield Buffer.from('image-');
+        yield Buffer.from('data');
+      })();
+    }
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const viewonceCommand = require(commandPath);
+    await viewonceCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, 'chat-id', quotedMessage);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][0], 'chat-id');
+    assert.equal(sentMessages[0][1].image.toString(), 'image-data');
+    assert.equal(sentMessages[0][1].caption, 'view-once image');
+    assert.equal(sentMessages[0][2].quoted, quotedMessage);
+  } finally {
+    baileysModule.exports = originalBaileysModuleExports;
+    if (originalCommandModule) {
+      require.cache[commandPath] = originalCommandModule;
+    } else {
+      delete require.cache[commandPath];
+    }
+  }
+});
