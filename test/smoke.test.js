@@ -61,10 +61,13 @@ test('.pair sends the code immediately after validating the requesting WhatsApp 
     };
 
     await pairCommand(sock, chatId, commandMessage);
-    assert.match(sentMessages[0][1].text, /Send your WhatsApp number/);
+    assert.equal(sentMessages[0][1].text, 'Send your WhatsApp number with country code, without + or spaces.');
+    const sentCountBeforeCode = sentMessages.length;
     assert.equal(await handlePairResponse(sock, chatId, commandMessage, requesterNumber), true);
     assert.equal(pairedNumber, requesterNumber);
-    assert.match(sentMessages[sentMessages.length - 1][1].text, /ABCD-EFGH/);
+    assert.equal(sentMessages.length, sentCountBeforeCode + 2);
+    assert.equal(sentMessages[sentCountBeforeCode][1].text, 'Your WhatsApp pairing code is:');
+    assert.equal(sentMessages[sentCountBeforeCode + 1][1].text, 'ABCD-EFGH');
 
     const groupId = 'test-group@g.us';
     await pairCommand(sock, groupId, {
@@ -98,7 +101,7 @@ test('.pair sends the code immediately after validating the requesting WhatsApp 
       sendMessage: async (...args) => sentMessages.push(args)
     };
     await pairCommand(lidSock, lid, lidChat);
-    assert.match(sentMessages[sentMessages.length - 1][1].text, /Send your WhatsApp number/);
+    assert.equal(sentMessages[sentMessages.length - 1][1].text, 'Send your WhatsApp number with country code, without + or spaces.');
     assert.equal(await handlePairResponse(lidSock, lid, lidChat, requesterNumber), true);
     assert.equal(pairedNumber, requesterNumber);
   } finally {
