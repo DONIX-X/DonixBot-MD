@@ -86,7 +86,7 @@ Donix Bot MD is maintained by DONIX and uses Baileys to connect to WhatsApp's mu
 
 Keep your session files and pairing codes private. Never commit them or share them in issue reports.
 
-After the bot is connected, a user can DM `.pair` and send their own full international number (digits only) to receive a separate companion-session code in that same DM. The number must match the WhatsApp account sending the request. Enter the code in that account's **Linked devices** settings. This stores that account's login session on the bot server; the companion session does not run bot handlers.
+After the bot is connected, a user can DM `.pair` and send their own full international number (digits only) to receive a separate companion-session code in that same DM. The number must match the WhatsApp account sending the request. Enter the code in that account's **Linked devices** settings. This stores that account's login session on the bot server, and the companion session runs the bot's command handlers.
 
 ---
 

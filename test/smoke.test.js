@@ -110,6 +110,47 @@ test('.pair sends the code immediately after validating the requesting WhatsApp 
   }
 });
 
+test('paired sessions dispatch incoming messages to the bot command handler', async () => {
+  const { EventEmitter } = require('node:events');
+  const attachPairingSessionHandlers = require('../lib/pairingSessionHandlers');
+  const ev = new EventEmitter();
+  let storedEvents = false;
+  let handledMessage = null;
+  let retryCacheCleared = false;
+  class RetryCache {
+    clear() {
+      retryCacheCleared = true;
+    }
+  }
+  const sock = {
+    ev,
+    sendMessage: async () => {}
+  };
+
+  attachPairingSessionHandlers(sock, {
+    handleMessages: async (_sock, update) => {
+      handledMessage = update.messages[0];
+    },
+    handleGroupParticipantUpdate: async () => {},
+    handleStatus: async () => {},
+    store: { bind: () => { storedEvents = true; } },
+    NodeCache: RetryCache
+  });
+
+  const message = {
+    key: { remoteJid: 'paired-user@s.whatsapp.net', id: 'message-id' },
+    message: { ephemeralMessage: { message: { conversation: '.ping' } } }
+  };
+  ev.emit('messages.upsert', { type: 'notify', messages: [message] });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(storedEvents, true);
+  assert.equal(sock.public, true);
+  assert.equal(retryCacheCleared, true);
+  assert.equal(handledMessage, message);
+  assert.equal(message.message.conversation, '.ping');
+});
+
 test('sudo list is restricted to owners and sudo users', async () => {
   const isOwnerPath = require.resolve('../lib/isOwner');
   const libIndex = require('../lib/index');
