@@ -18,6 +18,7 @@ test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.menu'), true);
   assert.equal(isCommandAllowed('.ping'), true);
   assert.equal(isCommandAllowed('.sudo'), true);
+  assert.equal(isCommandAllowed('.pair'), true);
   assert.equal(isCommandAllowed('.github'), true);
   assert.equal(isCommandAllowed('.chatbot'), false);
   assert.equal(isCommandAllowed('.git'), false);
@@ -28,6 +29,66 @@ test('command allowlist recognizes bot commands', () => {
   const menuCommands = commandGroups.flatMap(group => group.commands);
   for (const command of ['.chatbot', '.git', '.sc', '.script', '.repo']) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
+  }
+});
+
+test('.pair sends a consented code only to the requesting WhatsApp account', async () => {
+  const pairingSessionPath = require.resolve('../lib/pairingSession');
+  const originalPairingSession = require(pairingSessionPath);
+  const originalExports = require.cache[pairingSessionPath].exports;
+  const pairCommandPath = require.resolve('../commands/pair');
+  const sentMessages = [];
+  let pairedNumber = null;
+  require.cache[pairingSessionPath].exports = {
+    ...originalPairingSession,
+    createPairingCode: async number => {
+      pairedNumber = number;
+      return 'ABCD-EFGH';
+    }
+  };
+  delete require.cache[pairCommandPath];
+
+  try {
+    const { pairCommand, handlePairResponse } = require(pairCommandPath);
+    const requesterNumber = '447911123456';
+    const chatId = `${requesterNumber}@s.whatsapp.net`;
+    const sock = {
+      sendMessage: async (...args) => sentMessages.push(args)
+    };
+    const commandMessage = {
+      message: { conversation: '.pair' },
+      key: { remoteJid: chatId, fromMe: false }
+    };
+
+    await pairCommand(sock, chatId, commandMessage);
+    assert.match(sentMessages[0][1].text, /Send your WhatsApp number/);
+    assert.equal(await handlePairResponse(sock, chatId, commandMessage, requesterNumber), true);
+    assert.match(sentMessages[sentMessages.length - 1][1].text, /Reply YES/);
+    assert.equal(pairedNumber, null);
+    assert.equal(await handlePairResponse(sock, chatId, commandMessage, 'YES'), true);
+    assert.equal(pairedNumber, requesterNumber);
+    assert.match(sentMessages[sentMessages.length - 1][1].text, /ABCD-EFGH/);
+
+    const groupId = 'test-group@g.us';
+    await pairCommand(sock, groupId, {
+      message: { conversation: '.pair' },
+      key: { remoteJid: groupId, participant: requesterNumber + '@s.whatsapp.net', fromMe: false }
+    });
+    assert.match(sentMessages[sentMessages.length - 1][1].text, /private chat/);
+
+    const otherChat = '14155552671@s.whatsapp.net';
+    await pairCommand(sock, otherChat, {
+      message: { conversation: '.pair' },
+      key: { remoteJid: otherChat, fromMe: false }
+    });
+    await handlePairResponse(sock, otherChat, {
+      message: { conversation: '.pair' },
+      key: { remoteJid: otherChat, fromMe: false }
+    }, settings.ownerNumber);
+    assert.notEqual(pairedNumber, settings.ownerNumber);
+  } finally {
+    require.cache[pairingSessionPath].exports = originalExports;
+    delete require.cache[pairCommandPath];
   }
 });
 

@@ -91,6 +91,7 @@ const githubCommand = require('./commands/github');
 const { handleAntiBadwordCommand, handleBadwordDetection } = require('./lib/antibadword');
 const antibadwordCommand = require('./commands/antibadword');
 const { handleChatbotCommand, handleChatbotResponse } = require('./commands/chatbot');
+const { pairCommand, handlePairResponse } = require('./commands/pair');
 const takeCommand = require('./commands/take');
 const { flirtCommand } = require('./commands/flirt');
 const characterCommand = require('./commands/character');
@@ -278,8 +279,11 @@ async function handleMessages(sock, messageUpdate, printLog) {
             await Antilink(message, sock);
         }
 
+        if (await handlePairResponse(sock, chatId, message, rawText)) return;
+        const isPairCommand = userMessage === '.pair' || userMessage.startsWith('.pair ');
+
         // PM blocker: block non-owner DMs when enabled (do not ban)
-        if (!isGroup && !message.key.fromMe && !senderIsSudo) {
+        if (!isGroup && !message.key.fromMe && !senderIsOwnerOrSudo && !isPairCommand) {
             try {
                 const pmState = readPmBlockerState();
                 if (pmState.enabled) {
@@ -310,7 +314,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
             return;
         }
         // In private mode, only owner/sudo can run commands
-        if (!isPublic && !isOwnerOrSudoCheck) {
+        if (!isPublic && !isOwnerOrSudoCheck && !isPairCommand) {
             return;
         }
 
@@ -972,6 +976,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage.startsWith('.sudo'):
                 await sudoCommand(sock, chatId, message);
+                break;
+            case userMessage === '.pair' || userMessage.startsWith('.pair '):
+                await pairCommand(sock, chatId, message, rawText.slice('.pair'.length).trim());
                 break;
             case userMessage === '.goodnight' || userMessage === '.lovenight' || userMessage === '.gn':
                 await goodnightCommand(sock, chatId, message);

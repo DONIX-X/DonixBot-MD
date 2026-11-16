@@ -51,6 +51,7 @@ const store = require('./lib/lightweight_store')
 store.readFromFile()
 const settings = require('./settings')
 const { getStartupNotifyConfig } = require('./commands/startmsg')
+const { restorePairingSessions } = require('./lib/pairingSession')
 setInterval(() => store.writeToFile(), settings.storeWriteInterval || 30000)
 
 // Memory optimization - Force garbage collection if available
@@ -390,6 +391,10 @@ async function startXeonBotInc() {
 
     XeonBotInc.ev.on('messages.reaction', async (status) => {
         await handleStatus(XeonBotInc, status);
+    });
+
+    restorePairingSessions().catch(error => {
+        console.error('[pair] Failed to restore companion sessions:', error);
     });
 
     return XeonBotInc

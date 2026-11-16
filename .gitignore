@@ -7,6 +7,7 @@ temp/
 
 # WhatsApp session/auth files
 session/
+pairing_sessions/
 baileys_store.json
 
 # Environment variables
