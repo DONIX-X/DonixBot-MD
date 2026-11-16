@@ -200,9 +200,15 @@ test('pairing code waits for WhatsApp readiness and reports disconnect reasons',
   const closedPromise = waitForPairingSocketReady(closedSocket, 1000);
   closedSocket.ev.emit('connection.update', {
     connection: 'close',
-    lastDisconnect: { error: { output: { statusCode: 408 }, message: 'Connection timed out' } }
+    lastDisconnect: {
+      error: {
+        output: { statusCode: 408 },
+        message: 'WebSocket Error ()',
+        data: { code: 'ETIMEDOUT', message: 'Connection timed out' }
+      }
+    }
   });
-  await assert.rejects(closedPromise, /status 408: Connection timed out/);
+  await assert.rejects(closedPromise, /status 408: WebSocket Error \(\): ETIMEDOUT: Connection timed out/);
 });
 
 test('sudo list is restricted to owners and sudo users', async () => {
