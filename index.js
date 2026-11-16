@@ -9,6 +9,7 @@
  * - Baileys Library by @adiwajshing
  * - Pair Code implementation inspired by TechGod143 & DGXEON
  */
+require('node:dns').setDefaultResultOrder('ipv4first')
 require('./settings')
 const { Boom } = require('@hapi/boom')
 const fs = require('fs')
