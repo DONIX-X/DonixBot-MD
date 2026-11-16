@@ -1,6 +1,5 @@
-const gTTS = require('gtts');
-const fs = require('fs');
-const path = require('path');
+const googleTTS = require('google-tts-api');
+const fetch = require('node-fetch');
 
 async function ttsCommand(sock, chatId, text, message, language = 'en') {
     if (!text) {
@@ -8,23 +7,36 @@ async function ttsCommand(sock, chatId, text, message, language = 'en') {
         return;
     }
 
-    const fileName = `tts-${Date.now()}.mp3`;
-    const filePath = path.join(__dirname, '..', 'assets', fileName);
+    try {
+        const audioSegments = googleTTS.getAllAudioUrls(text, {
+            lang: language,
+            host: 'https://translate.google.com'
+        });
+        const buffers = [];
 
-    const gtts = new gTTS(text, language);
-    gtts.save(filePath, async function (err) {
-        if (err) {
-            await sock.sendMessage(chatId, { text: 'Error generating TTS audio.' });
-            return;
+        for (const { url } of audioSegments) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`TTS service returned HTTP ${response.status}`);
+            }
+
+            const audioBuffer = await response.buffer();
+            if (!audioBuffer.length) {
+                throw new Error('TTS service returned empty audio');
+            }
+            buffers.push(audioBuffer);
         }
 
         await sock.sendMessage(chatId, {
-            audio: { url: filePath },
+            audio: Buffer.concat(buffers),
             mimetype: 'audio/mpeg'
         }, { quoted: message });
-
-        fs.unlinkSync(filePath);
-    });
+    } catch (error) {
+        console.error('TTS generation failed:', error);
+        await sock.sendMessage(chatId, {
+            text: 'Error generating TTS audio. Please try again.'
+        }, { quoted: message });
+    }
 }
 
 module.exports = ttsCommand;

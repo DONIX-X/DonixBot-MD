@@ -54,7 +54,7 @@ Donix Bot MD is maintained by DONIX and uses Baileys to connect to WhatsApp's mu
 
 ### Requirements
 
-- Node.js 18 or newer
+- Node.js 22 or newer
 - Git
 
 ### Install

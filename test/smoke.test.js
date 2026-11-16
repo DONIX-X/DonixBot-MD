@@ -6,6 +6,7 @@ const { isCommandAllowed } = require('../lib/commandAllowlist');
 const config = require('../config');
 const aliveCommand = require('../commands/alive');
 const helpCommand = require('../commands/help');
+const { fileTypeFromBuffer } = require('../lib/fileType');
 
 test('project settings load correctly', () => {
   assert.equal(settings.botName, 'Donix Bot MD');
@@ -56,4 +57,68 @@ test('help command sends the animated video menu', async () => {
   assert.ok(Buffer.isBuffer(sentMessages[0][1].video));
   assert.equal(sentMessages[0][1].gifPlayback, true);
   assert.match(sentMessages[0][1].caption, /𝐃𝐎𝐍𝐈𝐗/);
+});
+
+test('file type helper detects image buffers with the patched ESM package', async () => {
+  const image = require('node:fs').readFileSync(require('node:path').join(__dirname, '../assets/bot_image.jpg'));
+  const type = await fileTypeFromBuffer(image);
+
+  assert.equal(type.mime, 'image/jpeg');
+});
+
+test('image helpers work with the installed Jimp API', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
+  const image = fs.readFileSync(imagePath);
+  const myfuncPath = require.resolve('../lib/myfunc');
+  const myfunc = require(myfuncPath);
+
+  try {
+    const resized = await myfunc.reSize(image, 64, 64);
+    const profilePicture = await myfunc.generateProfilePicture(image);
+
+    assert.ok(resized.length > 0);
+    assert.ok(profilePicture.img.length > 0);
+    assert.equal(profilePicture.preview, profilePicture.img);
+  } finally {
+    fs.unwatchFile(myfuncPath);
+  }
+});
+
+test('TTS command sends fetched audio without creating temp files', async () => {
+  const fetchPath = require.resolve('node-fetch');
+  const originalFetch = require(fetchPath);
+  const fetchModule = require.cache[fetchPath];
+  const ttsPath = require.resolve('../commands/tts');
+  const originalTtsModule = require.cache[ttsPath];
+  const sentMessages = [];
+  const quotedMessage = { key: { id: 'quoted-message' } };
+
+  fetchModule.exports = async () => ({
+    ok: true,
+    status: 200,
+    buffer: async () => Buffer.from('fake-audio')
+  });
+  delete require.cache[ttsPath];
+
+  try {
+    const ttsCommand = require('../commands/tts');
+    await ttsCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, 'chat-id', 'hello', quotedMessage);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][0], 'chat-id');
+    assert.ok(Buffer.isBuffer(sentMessages[0][1].audio));
+    assert.equal(sentMessages[0][1].mimetype, 'audio/mpeg');
+    assert.equal(sentMessages[0][2].quoted, quotedMessage);
+  } finally {
+    fetchModule.exports = originalFetch;
+    if (originalTtsModule) {
+      require.cache[ttsPath] = originalTtsModule;
+    } else {
+      delete require.cache[ttsPath];
+    }
+  }
 });
