@@ -24,6 +24,11 @@ async function sudoCommand(sock, chatId, message) {
         return;
     }
 
+    if (!isOwner) {
+        await sock.sendMessage(chatId, { text: '❌ Only the owner or a sudo user can use this command.' }, { quoted: message });
+        return;
+    }
+
     if (sub === 'list') {
         const list = await getSudoList();
         if (list.length === 0) {
@@ -32,11 +37,6 @@ async function sudoCommand(sock, chatId, message) {
         }
         const text = list.map((j, i) => `${i + 1}. ${j}`).join('\n');
         await sock.sendMessage(chatId, { text: `Sudo users:\n${text}` },{quoted :message});
-        return;
-    }
-
-    if (!isOwner) {
-        await sock.sendMessage(chatId, { text: '❌ Only owner can add/remove sudo users. Use .sudo list to view.' },{quoted :message});
         return;
     }
 

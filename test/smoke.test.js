@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const settings = require('../settings');
-const { isCommandAllowed } = require('../lib/commandAllowlist');
+const { commandGroups, isCommandAllowed } = require('../lib/commandAllowlist');
 const config = require('../config');
 const aliveCommand = require('../commands/alive');
 const helpCommand = require('../commands/help');
@@ -17,7 +17,52 @@ test('project settings load correctly', () => {
 test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.menu'), true);
   assert.equal(isCommandAllowed('.ping'), true);
+  assert.equal(isCommandAllowed('.sudo'), true);
+  assert.equal(isCommandAllowed('.github'), true);
+  assert.equal(isCommandAllowed('.chatbot'), false);
+  assert.equal(isCommandAllowed('.git'), false);
+  assert.equal(isCommandAllowed('.sc'), false);
+  assert.equal(isCommandAllowed('.script'), false);
+  assert.equal(isCommandAllowed('.repo'), false);
   assert.equal(isCommandAllowed('.unknown'), false);
+  const menuCommands = commandGroups.flatMap(group => group.commands);
+  for (const command of ['.chatbot', '.git', '.sc', '.script', '.repo']) {
+    assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
+  }
+});
+
+test('sudo list is restricted to owners and sudo users', async () => {
+  const isOwnerPath = require.resolve('../lib/isOwner');
+  const libIndex = require('../lib/index');
+  const originalOwnerCheck = require(isOwnerPath);
+  const originalGetSudoList = libIndex.getSudoList;
+  const sudoPath = require.resolve('../commands/sudo');
+  let sudoListRead = false;
+  const sentMessages = [];
+
+  libIndex.getSudoList = async () => {
+    sudoListRead = true;
+    return [];
+  };
+  require.cache[isOwnerPath].exports = async () => false;
+  delete require.cache[sudoPath];
+
+  try {
+    const sudoCommand = require(sudoPath);
+    await sudoCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, 'chat-id', {
+      message: { conversation: '.sudo list' },
+      key: { participant: 'not-owner@s.whatsapp.net' }
+    });
+
+    assert.equal(sudoListRead, false);
+    assert.match(sentMessages[0][1].text, /Only the owner or a sudo user/);
+  } finally {
+    libIndex.getSudoList = originalGetSudoList;
+    require.cache[isOwnerPath].exports = originalOwnerCheck;
+    delete require.cache[sudoPath];
+  }
 });
 
 test('config exports supported API defaults', () => {
