@@ -188,6 +188,23 @@ test('paired-session handler errors are logged without replying into self-DM', a
   assert.equal(sentMessages.length, 0);
 });
 
+test('pairing code waits for WhatsApp readiness and reports disconnect reasons', async () => {
+  const { EventEmitter } = require('node:events');
+  const { waitForPairingSocketReady } = require('../lib/pairingSession');
+  const readySocket = { ev: new EventEmitter() };
+  const readyPromise = waitForPairingSocketReady(readySocket, 1000);
+  readySocket.ev.emit('connection.update', { qr: 'pairing-ready' });
+  await readyPromise;
+
+  const closedSocket = { ev: new EventEmitter() };
+  const closedPromise = waitForPairingSocketReady(closedSocket, 1000);
+  closedSocket.ev.emit('connection.update', {
+    connection: 'close',
+    lastDisconnect: { error: { output: { statusCode: 408 }, message: 'Connection timed out' } }
+  });
+  await assert.rejects(closedPromise, /status 408: Connection timed out/);
+});
+
 test('sudo list is restricted to owners and sudo users', async () => {
   const isOwnerPath = require.resolve('../lib/isOwner');
   const libIndex = require('../lib/index');
