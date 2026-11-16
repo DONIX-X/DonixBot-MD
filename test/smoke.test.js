@@ -151,6 +151,43 @@ test('paired sessions dispatch incoming messages to the bot command handler', as
   assert.equal(message.message.conversation, '.ping');
 });
 
+test('paired-session handler errors are logged without replying into self-DM', async () => {
+  const { EventEmitter } = require('node:events');
+  const attachPairingSessionHandlers = require('../lib/pairingSessionHandlers');
+  const ev = new EventEmitter();
+  const sentMessages = [];
+  let loggedError = false;
+  const originalConsoleError = console.error;
+  console.error = () => { loggedError = true; };
+
+  try {
+    attachPairingSessionHandlers({
+      ev,
+      sendMessage: async (...args) => { sentMessages.push(args); }
+    }, {
+      handleMessages: async () => { throw new Error('test handler failure'); },
+      handleGroupParticipantUpdate: async () => {},
+      handleStatus: async () => {},
+      store: { bind: () => {} },
+      NodeCache: class { clear() {} }
+    });
+
+    ev.emit('messages.upsert', {
+      type: 'notify',
+      messages: [{
+        key: { remoteJid: 'paired-user@s.whatsapp.net', id: 'message-id' },
+        message: { conversation: '.ping' }
+      }]
+    });
+    await new Promise(resolve => setImmediate(resolve));
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(loggedError, true);
+  assert.equal(sentMessages.length, 0);
+});
+
 test('sudo list is restricted to owners and sudo users', async () => {
   const isOwnerPath = require.resolve('../lib/isOwner');
   const libIndex = require('../lib/index');
