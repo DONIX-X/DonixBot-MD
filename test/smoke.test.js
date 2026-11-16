@@ -32,7 +32,7 @@ test('command allowlist recognizes bot commands', () => {
   }
 });
 
-test('.pair sends a consented code only to the requesting WhatsApp account', async () => {
+test('.pair sends the code immediately after validating the requesting WhatsApp account', async () => {
   const pairingSessionPath = require.resolve('../lib/pairingSession');
   const originalPairingSession = require(pairingSessionPath);
   const originalExports = require.cache[pairingSessionPath].exports;
@@ -63,9 +63,6 @@ test('.pair sends a consented code only to the requesting WhatsApp account', asy
     await pairCommand(sock, chatId, commandMessage);
     assert.match(sentMessages[0][1].text, /Send your WhatsApp number/);
     assert.equal(await handlePairResponse(sock, chatId, commandMessage, requesterNumber), true);
-    assert.match(sentMessages[sentMessages.length - 1][1].text, /Reply YES/);
-    assert.equal(pairedNumber, null);
-    assert.equal(await handlePairResponse(sock, chatId, commandMessage, 'YES'), true);
     assert.equal(pairedNumber, requesterNumber);
     assert.match(sentMessages[sentMessages.length - 1][1].text, /ABCD-EFGH/);
 

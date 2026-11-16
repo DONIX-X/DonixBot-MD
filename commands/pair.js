@@ -36,15 +36,22 @@ async function submitPhoneNumber(sock, chatId, message, text, requesterNumber) {
         return;
     }
 
-    pendingPairing.set(chatId, {
-        requesterNumber,
-        phoneNumber,
-        phase: 'confirm',
-        expiresAt: Date.now() + pairingTimeoutMs
-    });
+    pendingPairing.delete(chatId);
     await sock.sendMessage(chatId, {
-        text: 'This will link a new WhatsApp companion session to this bot server. The server will store its login credentials, but this session will not run bot handlers. Only continue if this is your account and you understand the server will retain access. Reply YES to generate the code or NO to cancel.'
+        text: '🔄 Generating your code. Linking will store this account’s companion-session credentials on the bot server; the session will not run bot handlers.'
     }, { quoted: message });
+
+    try {
+        const code = await createPairingCode(phoneNumber);
+        await sock.sendMessage(chatId, {
+            text: `Your WhatsApp pairing code is: *${code}*\n\nIn your WhatsApp account, open Settings → Linked devices → Link a device → Link with phone number instead, then enter this code. Keep it private.`
+        }, { quoted: message });
+    } catch (error) {
+        console.error('[pair] Could not create pairing code:', error);
+        await sock.sendMessage(chatId, {
+            text: `❌ Could not create a pairing code: ${error.message}`
+        }, { quoted: message });
+    }
 }
 
 async function pairCommand(sock, chatId, message, args = '') {
@@ -70,11 +77,10 @@ async function pairCommand(sock, chatId, message, args = '') {
 
     pendingPairing.set(chatId, {
         requesterNumber,
-        phase: 'number',
         expiresAt: Date.now() + pairingTimeoutMs
     });
     await sock.sendMessage(chatId, {
-        text: 'Send your WhatsApp number with country code, without + or spaces. You must send this command from the same account. This request expires in 2 minutes; use .pair cancel to cancel.'
+        text: 'Send your WhatsApp number with country code, without + or spaces. You must send this command from the same account. Linking stores the companion-session credentials on the bot server. This request expires in 2 minutes; use .pair cancel to cancel.'
     }, { quoted: message });
 }
 
@@ -93,37 +99,7 @@ async function handlePairResponse(sock, chatId, message, text) {
         return false;
     }
 
-    const response = String(text || '').trim().toLowerCase();
-    if (pending.phase === 'number') {
-        await submitPhoneNumber(sock, chatId, message, text, requesterNumber);
-        return true;
-    }
-
-    if (response === 'no' || response === 'cancel') {
-        pendingPairing.delete(chatId);
-        await sock.sendMessage(chatId, { text: 'Pairing request cancelled.' }, { quoted: message });
-        return true;
-    }
-
-    if (response !== 'yes' && response !== 'confirm') {
-        await sock.sendMessage(chatId, { text: 'Reply YES to generate the code or NO to cancel.' }, { quoted: message });
-        return true;
-    }
-
-    pendingPairing.delete(chatId);
-    await sock.sendMessage(chatId, { text: '🔄 Generating your private pairing code…' }, { quoted: message });
-    try {
-        const code = await createPairingCode(pending.phoneNumber);
-        await sock.sendMessage(chatId, {
-            text: `Your WhatsApp pairing code is: *${code}*\n\nIn your WhatsApp account, open Settings → Linked devices → Link a device → Link with phone number instead, then enter this code. Keep it private.`
-        }, { quoted: message });
-    } catch (error) {
-        console.error('[pair] Could not create pairing code:', error);
-        await sock.sendMessage(chatId, {
-            text: `❌ Could not create a pairing code: ${error.message}`
-        }, { quoted: message });
-    }
-
+    await submitPhoneNumber(sock, chatId, message, text, requesterNumber);
     return true;
 }
 
