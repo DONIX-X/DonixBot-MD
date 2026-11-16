@@ -14,12 +14,9 @@ function toMathematicalBold(input = '') {
     return String(input).split('').map(char => map[char] || char).join('');
 }
 
-function getBotImagePath() {
-    const primary = path.join(__dirname, '../assets/bot_image.jpg');
-    const fallback = path.join(__dirname, '../assets/rapid.jpg');
-    if (fs.existsSync(primary)) return primary;
-    if (fs.existsSync(fallback)) return fallback;
-    return null;
+function getBotGifVideoPath() {
+    const videoPath = path.join(__dirname, '../assets/giphy.mp4');
+    return fs.existsSync(videoPath) ? videoPath : null;
 }
 
 async function aliveCommand(sock, chatId, message) {
@@ -62,10 +59,12 @@ async function aliveCommand(sock, chatId, message) {
             console.error('[ALIVE] channel preview unavailable:', channelError.message);
         }
 
-        const imagePath = getBotImagePath();
-        if (imagePath) {
+        const gifVideoPath = getBotGifVideoPath();
+        if (gifVideoPath) {
             await sock.sendMessage(chatId, {
-                image: fs.readFileSync(imagePath),
+                video: fs.readFileSync(gifVideoPath),
+                mimetype: 'video/mp4',
+                gifPlayback: true,
                 caption: boldMessage,
                 contextInfo: channelContext
             }, { quoted: message });

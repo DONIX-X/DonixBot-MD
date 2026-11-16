@@ -16,13 +16,9 @@ function toMathematicalBold(input = '') {
     return String(input).split('').map(char => map[char] || char).join('');
 }
 
-function getBotImagePath() {
-    const primary = path.join(__dirname, '../assets/bot_image.jpg');
-    const fallback = path.join(__dirname, '../assets/rapid.jpg');
-
-    if (fs.existsSync(primary)) return primary;
-    if (fs.existsSync(fallback)) return fallback;
-    return null;
+function getBotGifVideoPath() {
+    const videoPath = path.join(__dirname, '../assets/giphy.mp4');
+    return fs.existsSync(videoPath) ? videoPath : null;
 }
 
 function createMenuSection(title, commands) {
@@ -72,7 +68,7 @@ async function helpCommand(sock, chatId, message) {
     const boldHelpMessage = toMathematicalBold(helpMessage);
 
     try {
-        const imagePath = getBotImagePath();
+        const gifVideoPath = getBotGifVideoPath();
         const channelLink = settings.channelLink || global.channelLink;
         const channelContext = {
             forwardingScore: 1,
@@ -94,10 +90,11 @@ async function helpCommand(sock, chatId, message) {
             console.error('[HELP] channel preview unavailable:', channelError.message);
         }
 
-        if (imagePath) {
-            const imageBuffer = fs.readFileSync(imagePath);
+        if (gifVideoPath) {
             await sock.sendMessage(chatId, {
-                image: imageBuffer,
+                video: fs.readFileSync(gifVideoPath),
+                mimetype: 'video/mp4',
+                gifPlayback: true,
                 caption: boldHelpMessage,
                 contextInfo: channelContext
             }, { quoted: message });
