@@ -1,4 +1,5 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const store = require('../lib/lightweight_store');
 
 const viewOnceWrappers = [
     'viewOnceMessage',
@@ -46,7 +47,14 @@ async function viewonceCommand(sock, chatId, message) {
     const contextInfo = message.message?.extendedTextMessage?.contextInfo
         || message.message?.imageMessage?.contextInfo
         || message.message?.videoMessage?.contextInfo;
-    const mediaInfo = findViewOnceMedia(contextInfo?.quotedMessage);
+    let mediaInfo = findViewOnceMedia(contextInfo?.quotedMessage);
+    if (contextInfo?.stanzaId) {
+        const quotedMessage = await store.loadMessage(
+            contextInfo.remoteJid || chatId,
+            contextInfo.stanzaId
+        );
+        mediaInfo = findViewOnceMedia(quotedMessage?.message) || mediaInfo;
+    }
 
     if (!mediaInfo) {
         await sock.sendMessage(chatId, { text: '❌ Please reply to a view-once image or video.' }, { quoted: message });

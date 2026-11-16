@@ -183,3 +183,74 @@ test('vv unwraps and sends quoted view-once V2 images', async () => {
     }
   }
 });
+
+test('vv retrieves quoted media from the lightweight store when the quote is incomplete', async () => {
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const baileysModule = require.cache[baileysPath];
+  const originalBaileysExports = require(baileysPath);
+  const originalBaileysModuleExports = baileysModule.exports;
+  const store = require('../lib/lightweight_store');
+  const chatId = 'test-chat';
+  const sourceId = 'source-message';
+  const priorMessages = store.messages[chatId];
+  const media = { caption: 'stored view-once video', mimetype: 'video/mp4' };
+  const commandPath = require.resolve('../commands/viewonce');
+  const originalCommandModule = require.cache[commandPath];
+  const sentMessages = [];
+
+  store.messages[chatId] = [{
+    key: { remoteJid: chatId, id: sourceId },
+    message: {
+      viewOnceMessageV2: {
+        message: { videoMessage: media }
+      }
+    }
+  }];
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadContentFromMessage: async (content, type) => {
+      assert.equal(content, media);
+      assert.equal(type, 'video');
+      return (async function* () {
+        yield Buffer.from('video-data');
+      })();
+    }
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const viewonceCommand = require(commandPath);
+    const message = {
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            stanzaId: sourceId,
+            remoteJid: chatId,
+            quotedMessage: {}
+          }
+        }
+      }
+    };
+
+    await viewonceCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, chatId, message);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][1].video.toString(), 'video-data');
+    assert.equal(sentMessages[0][1].caption, 'stored view-once video');
+    assert.equal(sentMessages[0][2].quoted, message);
+  } finally {
+    baileysModule.exports = originalBaileysModuleExports;
+    if (originalCommandModule) {
+      require.cache[commandPath] = originalCommandModule;
+    } else {
+      delete require.cache[commandPath];
+    }
+    if (priorMessages) {
+      store.messages[chatId] = priorMessages;
+    } else {
+      delete store.messages[chatId];
+    }
+  }
+});
