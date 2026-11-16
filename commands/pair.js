@@ -1,4 +1,5 @@
 const PhoneNumber = require('awesome-phonenumber');
+const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 const { createPairingCode } = require('../lib/pairingSession');
 
 const pendingPairing = new Map();
@@ -9,11 +10,33 @@ function getNumber(jid = '') {
     return number || '';
 }
 
-function getRequesterNumber(chatId, message) {
+async function getPhoneNumberFromJid(sock, jid) {
+    const normalizedJid = jidNormalizedUser(jid);
+    if (!normalizedJid) return null;
+    if (normalizedJid.endsWith('@s.whatsapp.net')) return getNumber(normalizedJid);
+    if (!normalizedJid.endsWith('@lid')) return null;
+
+    try {
+        const phoneJid = await sock.signalRepository?.lidMapping?.getPNForLID(normalizedJid);
+        return phoneJid ? getNumber(phoneJid) : null;
+    } catch (error) {
+        console.error('[pair] Could not resolve the sender LID:', error);
+        return null;
+    }
+}
+
+async function getRequesterNumber(sock, chatId, message) {
     if (!chatId || chatId.endsWith('@g.us') || chatId === 'status@broadcast') return null;
 
-    const chatNumber = getNumber(chatId);
-    const senderNumber = getNumber(message.key.participant || message.key.remoteJid);
+    const chatJid = message.key.remoteJidAlt || chatId;
+    const senderJid = message.key.participantAlt ||
+        message.key.participant ||
+        message.key.remoteJidAlt ||
+        message.key.remoteJid;
+    const [chatNumber, senderNumber] = await Promise.all([
+        getPhoneNumberFromJid(sock, chatJid),
+        getPhoneNumberFromJid(sock, senderJid)
+    ]);
     if (!chatNumber || chatNumber !== senderNumber) return null;
     return chatNumber;
 }
@@ -55,7 +78,7 @@ async function submitPhoneNumber(sock, chatId, message, text, requesterNumber) {
 }
 
 async function pairCommand(sock, chatId, message, args = '') {
-    const requesterNumber = getRequesterNumber(chatId, message);
+    const requesterNumber = await getRequesterNumber(sock, chatId, message);
     if (!requesterNumber) {
         await sock.sendMessage(chatId, {
             text: '❌ .pair can only be used in a private chat from the WhatsApp account you want to pair.'
@@ -93,7 +116,7 @@ async function handlePairResponse(sock, chatId, message, text) {
         return false;
     }
 
-    const requesterNumber = getRequesterNumber(chatId, message);
+    const requesterNumber = await getRequesterNumber(sock, chatId, message);
     if (!requesterNumber || requesterNumber !== pending.requesterNumber) {
         pendingPairing.delete(chatId);
         return false;

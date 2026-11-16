@@ -83,6 +83,24 @@ test('.pair sends the code immediately after validating the requesting WhatsApp 
       key: { remoteJid: otherChat, fromMe: false }
     }, settings.ownerNumber);
     assert.notEqual(pairedNumber, settings.ownerNumber);
+
+    const lid = '123456789@lid';
+    const lidChat = {
+      message: { conversation: '.pair' },
+      key: { remoteJid: lid, fromMe: false }
+    };
+    const lidSock = {
+      signalRepository: {
+        lidMapping: {
+          getPNForLID: async () => `${requesterNumber}@s.whatsapp.net`
+        }
+      },
+      sendMessage: async (...args) => sentMessages.push(args)
+    };
+    await pairCommand(lidSock, lid, lidChat);
+    assert.match(sentMessages[sentMessages.length - 1][1].text, /Send your WhatsApp number/);
+    assert.equal(await handlePairResponse(lidSock, lid, lidChat, requesterNumber), true);
+    assert.equal(pairedNumber, requesterNumber);
   } finally {
     require.cache[pairingSessionPath].exports = originalExports;
     delete require.cache[pairCommandPath];
