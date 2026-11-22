@@ -68,6 +68,14 @@ test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.sudo'), true);
   assert.equal(isCommandAllowed('.pair'), true);
   assert.equal(isCommandAllowed('.github'), true);
+  const downloadCommands = [
+    '.vv', '.url', '.tourl', '.play', '.mp3', '.ytmp3', '.song', '.music', '.video', '.ytmp4',
+    '.spotify', '.instagram', '.insta', '.ig', '.igsc', '.igs', '.facebook', '.fb',
+    '.tiktok', '.tt', '.tg', '.stickertelegram', '.tgsticker', '.telesticker'
+  ];
+  for (const command of downloadCommands) {
+    assert.equal(isCommandAllowed(command), true, `${command} should be enabled`);
+  }
   assert.equal(isCommandAllowed('.chatbot'), false);
   assert.equal(isCommandAllowed('.git'), false);
   assert.equal(isCommandAllowed('.sc'), false);
@@ -77,6 +85,9 @@ test('command allowlist recognizes bot commands', () => {
   const menuCommands = commandGroups.flatMap(group => group.commands);
   for (const command of ['.chatbot', '.git', '.sc', '.script', '.repo']) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
+  }
+  for (const command of downloadCommands) {
+    assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
   }
 });
 
@@ -451,7 +462,7 @@ test('TTS command sends fetched audio without creating temp files', async () => 
   }
 });
 
-test('vv unwraps and sends quoted view-once V2 images', async () => {
+test('vv unwraps and sends quoted view-once images across wrapper versions', async () => {
   const baileysPath = require.resolve('@whiskeysockets/baileys');
   const baileysModule = require.cache[baileysPath];
   const originalBaileysExports = require(baileysPath);
@@ -460,24 +471,6 @@ test('vv unwraps and sends quoted view-once V2 images', async () => {
   const originalCommandModule = require.cache[commandPath];
   const media = { caption: 'view-once image', mimetype: 'image/jpeg' };
   const sentMessages = [];
-  const quotedMessage = {
-    message: {
-      extendedTextMessage: {
-        contextInfo: {
-          quotedMessage: {
-            ephemeralMessage: {
-              message: {
-                viewOnceMessageV2: {
-                  message: { imageMessage: media }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  };
-
   baileysModule.exports = {
     ...originalBaileysExports,
     downloadContentFromMessage: async (content, type) => {
@@ -493,15 +486,38 @@ test('vv unwraps and sends quoted view-once V2 images', async () => {
 
   try {
     const viewonceCommand = require(commandPath);
-    await viewonceCommand({
-      sendMessage: async (...args) => sentMessages.push(args)
-    }, 'chat-id', quotedMessage);
+    for (const wrapper of ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension']) {
+      const quotedMessage = {
+        message: {
+          extendedTextMessage: {
+            contextInfo: {
+              quotedMessage: {
+                ephemeralMessage: {
+                  message: {
+                    [wrapper]: {
+                      message: { imageMessage: media }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+      const sentCountBefore = sentMessages.length;
 
-    assert.equal(sentMessages.length, 1);
-    assert.equal(sentMessages[0][0], 'chat-id');
-    assert.equal(sentMessages[0][1].image.toString(), 'image-data');
-    assert.equal(sentMessages[0][1].caption, 'view-once image');
-    assert.equal(sentMessages[0][2].quoted, quotedMessage);
+      await viewonceCommand({
+        sendMessage: async (...args) => sentMessages.push(args)
+      }, 'chat-id', quotedMessage);
+
+      assert.equal(sentMessages.length, sentCountBefore + 1);
+      assert.equal(sentMessages.at(-1)[0], 'chat-id');
+      assert.equal(sentMessages.at(-1)[1].image.toString(), 'image-data');
+      assert.equal(sentMessages.at(-1)[1].caption, 'view-once image');
+      assert.equal(sentMessages.at(-1)[2].quoted, quotedMessage);
+    }
+
+    assert.equal(sentMessages.length, 3);
   } finally {
     baileysModule.exports = originalBaileysModuleExports;
     if (originalCommandModule) {
