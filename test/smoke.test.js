@@ -702,3 +702,76 @@ test('vv falls back to complete stored media when the quoted media node is incom
     else delete store.messages[alternateChatId];
   }
 });
+
+test('vv refreshes stored media that has no download URL before trying to download it', async () => {
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const baileysModule = require.cache[baileysPath];
+  const originalBaileysExports = require(baileysPath);
+  const originalBaileysModuleExports = baileysModule.exports;
+  const store = require('../lib/lightweight_store');
+  const chatId = 'refresh-chat';
+  const sourceId = 'refresh-message';
+  const priorMessages = store.messages[chatId];
+  const commandPath = require.resolve('../commands/viewonce');
+  const originalCommandModule = require.cache[commandPath];
+  const media = {
+    mediaKey: Buffer.from('view-once-key'),
+    mimetype: 'image/jpeg',
+    caption: 'refreshed media'
+  };
+  const sentMessages = [];
+  store.messages[chatId] = [{
+    key: { remoteJid: chatId, id: sourceId },
+    message: {
+      viewOnceMessageV2: {
+        message: { imageMessage: media }
+      }
+    }
+  }];
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadMediaMessage: async (sourceMessage, type) => {
+      assert.equal(sourceMessage.key.id, sourceId);
+      assert.equal(type, 'buffer');
+      assert.equal(sourceMessage.message.viewOnceMessageV2.message.imageMessage.directPath, '/refreshed/path');
+      return Buffer.from('refreshed-image');
+    },
+    downloadContentFromMessage: async () => {
+      throw new Error('Expected the refreshed message downloader');
+    }
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const viewonceCommand = require(commandPath);
+    const message = {
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            stanzaId: sourceId,
+            remoteJid: chatId,
+            quotedMessage: {}
+          }
+        }
+      }
+    };
+
+    await viewonceCommand({
+      updateMediaMessage: async sourceMessage => {
+        sourceMessage.message.viewOnceMessageV2.message.imageMessage.directPath = '/refreshed/path';
+        return sourceMessage;
+      },
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, chatId, message);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][1].image.toString(), 'refreshed-image');
+    assert.equal(sentMessages[0][1].caption, 'refreshed media');
+  } finally {
+    baileysModule.exports = originalBaileysModuleExports;
+    if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
+    else delete require.cache[commandPath];
+    if (priorMessages) store.messages[chatId] = priorMessages;
+    else delete store.messages[chatId];
+  }
+});

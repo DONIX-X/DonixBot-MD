@@ -75,6 +75,15 @@ async function downloadViewOnceMedia(candidates, sock) {
     for (const candidate of orderedCandidates) {
         if (candidate.sourceMessage) {
             try {
+                if (!candidate.media.url && !candidate.media.directPath && typeof sock.updateMediaMessage === 'function') {
+                    candidate.sourceMessage = await sock.updateMediaMessage(candidate.sourceMessage);
+                    const refreshedMedia = findViewOnceMedia(candidate.sourceMessage?.message);
+                    if (refreshedMedia) {
+                        candidate.media = refreshedMedia.media;
+                        candidate.type = refreshedMedia.type;
+                    }
+                }
+
                 const context = typeof sock.updateMediaMessage === 'function'
                     ? {
                         logger: viewOnceLogger,
