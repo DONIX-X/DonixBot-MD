@@ -64,12 +64,15 @@ setInterval(() => {
     }
 }, 5 * 60_000) // every 5 minutes
 
-// Memory monitoring - Restart if RAM gets too high
+// Memory monitoring warns without forcing a restart on constrained devices.
 setInterval(() => {
     const used = process.memoryUsage().rss / 1024 / 1024
-    if (used > 400) {
-        console.log('⚠️ RAM too high (>400MB), restarting bot...')
-        process.exit(1) // Panel will auto-restart
+    if (used > 400 && !highMemoryWarningShown) {
+        highMemoryWarningShown = true
+        const { heapUsed, external } = process.memoryUsage()
+        console.warn(`⚠️ High memory use: RSS ${Math.round(used)} MB, heap ${Math.round(heapUsed / 1024 / 1024)} MB, external ${Math.round(external / 1024 / 1024)} MB. Bot will stay online.`)
+    } else if (used <= 400) {
+        highMemoryWarningShown = false
     }
 }, 60_000) // check once per minute
 
@@ -94,6 +97,7 @@ const question = (text) => {
 }
 
 let reconnectInProgress = false
+let highMemoryWarningShown = false
 
 setPairingSessionSocketConfigurer(sock => {
     attachPairingSessionHandlers(sock, {

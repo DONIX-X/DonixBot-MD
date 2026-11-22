@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 
 const settings = require('../settings');
 const { commandGroups, isCommandAllowed } = require('../lib/commandAllowlist');
@@ -12,6 +15,51 @@ test('project settings load correctly', () => {
   assert.equal(settings.botName, 'Donix Bot MD');
   assert.equal(settings.version, '1.0.7');
   assert.equal(settings.author, 'DONIX');
+});
+
+test('lightweight store only writes changed data and performs writes asynchronously', async () => {
+  const { EventEmitter } = require('node:events');
+  const store = require('../lib/lightweight_store');
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'donix-store-test-'));
+  const filePath = path.join(directory, 'store.json');
+  const original = {
+    messages: store.messages,
+    contacts: store.contacts,
+    chats: store.chats,
+    dirty: store.dirty,
+    writing: store.writing
+  };
+
+  try {
+    store.messages = {};
+    store.contacts = {};
+    store.chats = {};
+    store.dirty = false;
+    store.writing = false;
+    await store.writeToFile(filePath);
+    await assert.rejects(fs.access(filePath), { code: 'ENOENT' });
+
+    const ev = new EventEmitter();
+    store.bind(ev);
+    ev.emit('messages.upsert', {
+      messages: [{
+        key: { remoteJid: 'test-chat@s.whatsapp.net', id: 'test-message' },
+        message: { conversation: 'hello' }
+      }]
+    });
+
+    await store.writeToFile(filePath);
+    const persisted = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    assert.equal(persisted.messages['test-chat@s.whatsapp.net'][0].key.id, 'test-message');
+    assert.equal(store.dirty, false);
+  } finally {
+    store.messages = original.messages;
+    store.contacts = original.contacts;
+    store.chats = original.chats;
+    store.dirty = original.dirty;
+    store.writing = original.writing;
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('command allowlist recognizes bot commands', () => {
@@ -29,6 +77,61 @@ test('command allowlist recognizes bot commands', () => {
   const menuCommands = commandGroups.flatMap(group => group.commands);
   for (const command of ['.chatbot', '.git', '.sc', '.script', '.repo']) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
+  }
+});
+
+test('antibadword checks configuration once and acts on matching group messages', async () => {
+  const indexPath = require.resolve('../lib/index');
+  const antiBadwordPath = require.resolve('../lib/antibadword');
+  const indexExports = require(indexPath);
+  const originalIndexExports = require.cache[indexPath].exports;
+  const originalAntiBadwordCache = require.cache[antiBadwordPath];
+  const sentMessages = [];
+  let configReads = 0;
+  let config = { enabled: false };
+
+  require.cache[indexPath].exports = {
+    ...indexExports,
+    getAntiBadword: async () => {
+      configReads += 1;
+      return config;
+    }
+  };
+  delete require.cache[antiBadwordPath];
+
+  try {
+    const { handleBadwordDetection } = require(antiBadwordPath);
+    const sock = {
+      user: { id: 'bot:0@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        participants: [
+          { id: 'bot@s.whatsapp.net', admin: 'admin' },
+          { id: 'user@s.whatsapp.net' }
+        ]
+      }),
+      sendMessage: async (...args) => { sentMessages.push(args); }
+    };
+    const message = {
+      key: {
+        fromMe: false,
+        participant: 'user@s.whatsapp.net',
+        id: 'badword-message'
+      }
+    };
+
+    await handleBadwordDetection(sock, 'test-group@g.us', message, 'ordinary text', 'user@s.whatsapp.net');
+    assert.equal(configReads, 1);
+    assert.equal(sentMessages.length, 0);
+
+    config = { enabled: true, action: 'delete' };
+    await handleBadwordDetection(sock, 'test-group@g.us', message, 'idiot', 'user@s.whatsapp.net');
+    assert.equal(configReads, 2);
+    assert.equal(sentMessages[0][1].delete.id, 'badword-message');
+    assert.match(sentMessages[1][1].text, /bad words are not allowed/);
+  } finally {
+    require.cache[indexPath].exports = originalIndexExports;
+    if (originalAntiBadwordCache) require.cache[antiBadwordPath] = originalAntiBadwordCache;
+    else delete require.cache[antiBadwordPath];
   }
 });
 

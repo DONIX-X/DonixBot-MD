@@ -161,6 +161,7 @@ const channelInfo = {
 };
 
 async function handleMessages(sock, messageUpdate, printLog) {
+    let chatId = null;
     try {
         const { messages, type } = messageUpdate;
         if (type !== 'notify') return;
@@ -168,8 +169,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const message = messages[0];
         if (!message?.message) return;
 
-        // Handle autoread functionality
-        await handleAutoread(sock, message);
+        // Mark read without delaying command dispatch on the WhatsApp read receipt.
+        handleAutoread(sock, message).catch(error => {
+            console.error('Error marking message as read:', error);
+        });
 
         // Store message for antidelete feature
         if (message.message) {
@@ -182,7 +185,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
             return;
         }
 
-        const chatId = message.key.remoteJid;
+        chatId = message.key.remoteJid;
         const senderId = message.key.participant || message.key.remoteJid;
         const isGroup = chatId.endsWith('@g.us');
         const senderIsSudo = await isSudo(senderId);
@@ -1223,13 +1226,16 @@ async function handleMessages(sock, messageUpdate, printLog) {
             await addCommandReaction(sock, message);
         }
     } catch (error) {
-        console.error('❌ Error in message handler:', error.message);
-        // Only try to send error message if we have a valid chatId
+        console.error('❌ Error in message handler:', error);
         if (chatId) {
-            await sock.sendMessage(chatId, {
-                text: '❌ Failed to process command!',
-                ...channelInfo
-            });
+            try {
+                await sock.sendMessage(chatId, {
+                    text: '❌ Failed to process command!',
+                    ...channelInfo
+                });
+            } catch (sendError) {
+                console.error('❌ Could not send message-handler error notice:', sendError);
+            }
         }
     }
 }
