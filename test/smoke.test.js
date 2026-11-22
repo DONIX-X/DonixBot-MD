@@ -473,6 +473,9 @@ test('vv unwraps and sends quoted view-once images across wrapper versions', asy
   const sentMessages = [];
   baileysModule.exports = {
     ...originalBaileysExports,
+    downloadMediaMessage: async () => {
+      throw new Error('Use direct media fallback in this test');
+    },
     downloadContentFromMessage: async (content, type) => {
       assert.equal(content, media);
       assert.equal(type, 'image');
@@ -552,6 +555,9 @@ test('vv retrieves quoted media from the lightweight store when the quote is inc
   }];
   baileysModule.exports = {
     ...originalBaileysExports,
+    downloadMediaMessage: async () => {
+      throw new Error('Use direct media fallback in this test');
+    },
     downloadContentFromMessage: async (content, type) => {
       assert.equal(content, media);
       assert.equal(type, 'video');
@@ -630,6 +636,24 @@ test('vv falls back to complete stored media when the quoted media node is incom
   }];
   baileysModule.exports = {
     ...originalBaileysExports,
+    downloadMediaMessage: async (sourceMessage, type, _options, context) => {
+      assert.equal(sourceMessage.key.id, sourceId);
+      assert.equal(type, 'buffer');
+      assert.equal(typeof context.reuploadRequest, 'function');
+      assert.equal(typeof context.logger.info, 'function');
+      const expiredMediaError = Object.assign(new Error('Media URL expired'), { status: 404 });
+      try {
+        throw expiredMediaError;
+      } catch (error) {
+        if (typeof error.status === 'number') {
+          context.logger.info({ key: sourceMessage.key }, 'sending reupload media request...');
+          assert.equal(await context.reuploadRequest(sourceMessage), sourceMessage);
+        } else {
+          throw error;
+        }
+      }
+      return Buffer.from('recovered-image');
+    },
     downloadContentFromMessage: async (content, type) => {
       assert.equal(content, completeMedia);
       assert.equal(type, 'image');
@@ -661,6 +685,7 @@ test('vv falls back to complete stored media when the quoted media node is incom
     };
 
     await viewonceCommand({
+      updateMediaMessage: async sourceMessage => sourceMessage,
       sendMessage: async (...args) => sentMessages.push(args)
     }, primaryChatId, message);
 

@@ -1,5 +1,9 @@
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { downloadContentFromMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const store = require('../lib/lightweight_store');
+
+const viewOnceLogger = {
+    info: (details, message) => console.info(`[vv] ${message}`, details)
+};
 
 const viewOnceWrappers = [
     'viewOnceMessage',
@@ -55,11 +59,12 @@ function getStoredViewOnceCandidates(contextInfo, chatId, message) {
 
     return Promise.all(chatIds.map(async jid => {
         const storedMessage = await store.loadMessage(jid, contextInfo.stanzaId);
-        return findViewOnceMedia(storedMessage?.message);
+        const mediaInfo = findViewOnceMedia(storedMessage?.message);
+        return mediaInfo ? { ...mediaInfo, sourceMessage: storedMessage } : null;
     })).then(results => results.filter(Boolean));
 }
 
-async function downloadViewOnceMedia(candidates) {
+async function downloadViewOnceMedia(candidates, sock) {
     let lastError = null;
     const orderedCandidates = [...candidates].sort((a, b) => {
         const aComplete = Boolean(a.media.mediaKey && (a.media.directPath || a.media.url));
@@ -68,6 +73,23 @@ async function downloadViewOnceMedia(candidates) {
     });
 
     for (const candidate of orderedCandidates) {
+        if (candidate.sourceMessage) {
+            try {
+                const context = typeof sock.updateMediaMessage === 'function'
+                    ? {
+                        logger: viewOnceLogger,
+                        reuploadRequest: sourceMessage => sock.updateMediaMessage(sourceMessage)
+                    }
+                    : undefined;
+                const buffer = await downloadMediaMessage(candidate.sourceMessage, 'buffer', {}, context);
+                if (!buffer?.length) throw new Error('Downloaded view-once media is empty');
+                return { buffer, mediaInfo: candidate };
+            } catch (error) {
+                lastError = error;
+                console.error('Could not download the stored view-once message:', error);
+            }
+        }
+
         try {
             const stream = await downloadContentFromMessage(candidate.media, candidate.type);
             const chunks = [];
@@ -90,7 +112,19 @@ async function viewonceCommand(sock, chatId, message) {
         || message.message?.videoMessage?.contextInfo;
     const candidates = [];
     const quotedMedia = findViewOnceMedia(contextInfo?.quotedMessage);
-    if (quotedMedia) candidates.push(quotedMedia);
+    if (quotedMedia) {
+        candidates.push({
+            ...quotedMedia,
+            sourceMessage: contextInfo?.stanzaId ? {
+                key: {
+                    remoteJid: contextInfo.remoteJid || chatId,
+                    id: contextInfo.stanzaId,
+                    participant: contextInfo.participant
+                },
+                message: contextInfo.quotedMessage
+            } : null
+        });
+    }
     candidates.push(...await getStoredViewOnceCandidates(contextInfo, chatId, message));
 
     if (!candidates.length) {
@@ -99,7 +133,7 @@ async function viewonceCommand(sock, chatId, message) {
     }
 
     try {
-        const { buffer, mediaInfo } = await downloadViewOnceMedia(candidates);
+        const { buffer, mediaInfo } = await downloadViewOnceMedia(candidates, sock);
 
         const mediaKey = mediaInfo.type;
         const payload = {
