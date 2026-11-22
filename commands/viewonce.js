@@ -43,30 +43,63 @@ function findViewOnceMedia(quotedMessage) {
     return null;
 }
 
+function getStoredViewOnceCandidates(contextInfo, chatId, message) {
+    if (!contextInfo?.stanzaId) return [];
+
+    const chatIds = [
+        contextInfo.remoteJid,
+        contextInfo.remoteJidAlt,
+        message.key?.remoteJidAlt,
+        chatId
+    ].filter((jid, index, list) => jid && list.indexOf(jid) === index);
+
+    return Promise.all(chatIds.map(async jid => {
+        const storedMessage = await store.loadMessage(jid, contextInfo.stanzaId);
+        return findViewOnceMedia(storedMessage?.message);
+    })).then(results => results.filter(Boolean));
+}
+
+async function downloadViewOnceMedia(candidates) {
+    let lastError = null;
+    const orderedCandidates = [...candidates].sort((a, b) => {
+        const aComplete = Boolean(a.media.mediaKey && (a.media.directPath || a.media.url));
+        const bComplete = Boolean(b.media.mediaKey && (b.media.directPath || b.media.url));
+        return Number(bComplete) - Number(aComplete);
+    });
+
+    for (const candidate of orderedCandidates) {
+        try {
+            const stream = await downloadContentFromMessage(candidate.media, candidate.type);
+            const chunks = [];
+            for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+            const buffer = Buffer.concat(chunks);
+            if (!buffer.length) throw new Error('Downloaded view-once media is empty');
+            return { buffer, mediaInfo: candidate };
+        } catch (error) {
+            lastError = error;
+            console.error('Could not download a view-once media candidate:', error);
+        }
+    }
+
+    throw lastError || new Error('No downloadable view-once media was found');
+}
+
 async function viewonceCommand(sock, chatId, message) {
     const contextInfo = message.message?.extendedTextMessage?.contextInfo
         || message.message?.imageMessage?.contextInfo
         || message.message?.videoMessage?.contextInfo;
-    let mediaInfo = findViewOnceMedia(contextInfo?.quotedMessage);
-    if (contextInfo?.stanzaId) {
-        const quotedMessage = await store.loadMessage(
-            contextInfo.remoteJid || chatId,
-            contextInfo.stanzaId
-        );
-        mediaInfo = findViewOnceMedia(quotedMessage?.message) || mediaInfo;
-    }
+    const candidates = [];
+    const quotedMedia = findViewOnceMedia(contextInfo?.quotedMessage);
+    if (quotedMedia) candidates.push(quotedMedia);
+    candidates.push(...await getStoredViewOnceCandidates(contextInfo, chatId, message));
 
-    if (!mediaInfo) {
+    if (!candidates.length) {
         await sock.sendMessage(chatId, { text: '❌ Please reply to a view-once image or video.' }, { quoted: message });
         return;
     }
 
     try {
-        const stream = await downloadContentFromMessage(mediaInfo.media, mediaInfo.type);
-        const chunks = [];
-        for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-        const buffer = Buffer.concat(chunks);
-        if (!buffer.length) throw new Error('Downloaded view-once media is empty');
+        const { buffer, mediaInfo } = await downloadViewOnceMedia(candidates);
 
         const mediaKey = mediaInfo.type;
         const payload = {

@@ -598,3 +598,82 @@ test('vv retrieves quoted media from the lightweight store when the quote is inc
     }
   }
 });
+
+test('vv falls back to complete stored media when the quoted media node is incomplete', async () => {
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const baileysModule = require.cache[baileysPath];
+  const originalBaileysExports = require(baileysPath);
+  const originalBaileysModuleExports = baileysModule.exports;
+  const store = require('../lib/lightweight_store');
+  const primaryChatId = 'primary-chat';
+  const alternateChatId = 'alternate-chat';
+  const sourceId = 'source-message';
+  const priorPrimaryMessages = store.messages[primaryChatId];
+  const priorAlternateMessages = store.messages[alternateChatId];
+  const commandPath = require.resolve('../commands/viewonce');
+  const originalCommandModule = require.cache[commandPath];
+  const partialMedia = { mimetype: 'image/jpeg' };
+  const completeMedia = {
+    mediaKey: Buffer.from('media-key'),
+    directPath: '/media/path',
+    mimetype: 'image/jpeg',
+    caption: 'recovered image'
+  };
+  const sentMessages = [];
+  store.messages[alternateChatId] = [{
+    key: { remoteJid: alternateChatId, id: sourceId },
+    message: {
+      viewOnceMessageV2: {
+        message: { imageMessage: completeMedia }
+      }
+    }
+  }];
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadContentFromMessage: async (content, type) => {
+      assert.equal(content, completeMedia);
+      assert.equal(type, 'image');
+      return (async function* () {
+        yield Buffer.from('recovered-image');
+      })();
+    }
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const viewonceCommand = require(commandPath);
+    const message = {
+      key: { remoteJid: primaryChatId, remoteJidAlt: alternateChatId },
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            stanzaId: sourceId,
+            remoteJid: primaryChatId,
+            remoteJidAlt: alternateChatId,
+            quotedMessage: {
+              viewOnceMessageV2: {
+                message: { imageMessage: partialMedia }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    await viewonceCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, primaryChatId, message);
+
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][1].image.toString(), 'recovered-image');
+    assert.equal(sentMessages[0][1].caption, 'recovered image');
+  } finally {
+    baileysModule.exports = originalBaileysModuleExports;
+    if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
+    else delete require.cache[commandPath];
+    if (priorPrimaryMessages) store.messages[primaryChatId] = priorPrimaryMessages;
+    else delete store.messages[primaryChatId];
+    if (priorAlternateMessages) store.messages[alternateChatId] = priorAlternateMessages;
+    else delete store.messages[alternateChatId];
+  }
+});
