@@ -146,6 +146,71 @@ test('antibadword checks configuration once and acts on matching group messages'
   }
 });
 
+test('antidelete stores text and reports the deleted message', async () => {
+  const antideletePath = require.resolve('../commands/antidelete');
+  const originalModule = require.cache[antideletePath];
+  const configPath = require.resolve('../data/antidelete.json');
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const storePath = path.resolve(__dirname, '../data/antidelete-store.json');
+  const originalConfig = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : null;
+  const originalStore = fs.existsSync(storePath) ? fs.readFileSync(storePath, 'utf8') : null;
+  delete require.cache[antideletePath];
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({ enabled: true }));
+    const { storeMessage, handleMessageRevocation } = require(antideletePath);
+    const sentMessages = [];
+    const sock = {
+      user: { id: '918086196892:1@s.whatsapp.net' },
+      groupMetadata: async () => ({ subject: 'Test group' }),
+      sendMessage: async (...args) => sentMessages.push(args)
+    };
+    const originalMessage = {
+      key: {
+        id: 'deleted-message-id',
+        remoteJid: 'test-group@g.us',
+        participant: '919876543210@s.whatsapp.net'
+      },
+      message: { conversation: 'message that will be deleted' }
+    };
+
+    await storeMessage(sock, originalMessage);
+
+    await handleMessageRevocation(sock, {
+      key: {
+        id: 'revocation-id',
+        remoteJid: 'test-group@g.us',
+        participant: '919876543210@s.whatsapp.net'
+      },
+      participant: '919876543210@s.whatsapp.net',
+      message: {
+        protocolMessage: {
+          type: 0,
+          key: { id: 'deleted-message-id', remoteJid: 'test-group@g.us' }
+        }
+      }
+    });
+
+    assert.equal(sentMessages.length, 1);
+    assert.match(sentMessages[0][1].text, /ANTIDELETE REPORT/);
+    assert.match(sentMessages[0][1].text, /message that will be deleted/);
+  } finally {
+    if (originalConfig === null) {
+      fs.rmSync(configPath, { force: true });
+    } else {
+      fs.writeFileSync(configPath, originalConfig);
+    }
+    if (originalStore === null) {
+      fs.rmSync(storePath, { force: true });
+    } else {
+      fs.writeFileSync(storePath, originalStore);
+    }
+    if (originalModule) require.cache[antideletePath] = originalModule;
+    else delete require.cache[antideletePath];
+  }
+});
+
 test('.pair sends the code immediately after validating the requesting WhatsApp account', async () => {
   const pairingSessionPath = require.resolve('../lib/pairingSession');
   const originalPairingSession = require(pairingSessionPath);

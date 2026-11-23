@@ -176,7 +176,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         // Store message for antidelete feature
         if (message.message) {
-            storeMessage(sock, message);
+            await storeMessage(sock, message);
         }
 
         // Handle message revocation
