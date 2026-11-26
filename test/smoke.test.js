@@ -852,9 +852,10 @@ test('.as sends a video sticker with an embedded audio track', async () => {
   const baileysModule = require.cache[baileysPath] || require(baileysPath);
   const originalBaileysExports = baileysModule.exports;
   const proto = originalBaileysExports.proto;
-  const originalEncode = proto.Message.encode;
-  const stateKey = Symbol.for('donixbot.audioStickerState');
-  const originalState = Object.getOwnPropertyDescriptor(proto.Message, stateKey);
+  const originalStickerEncode = proto.Message.StickerMessage.encode;
+  const originalStickerFromObject = proto.Message.StickerMessage.fromObject;
+  const patchKey = Symbol.for('donixbot.audioStickerProtoPatch');
+  const originalPatch = Object.getOwnPropertyDescriptor(proto.Message.StickerMessage, patchKey);
   const originalSpawn = childProcess.spawn;
   const commandPath = require.resolve('../commands/audioSticker');
   const originalCommandModule = require.cache[commandPath];
@@ -922,7 +923,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       waUploadToServer: async () => ({}),
       sendMessage: async (...args) => sentMessages.push(args),
       relayMessage: async (_chatId, payload) => {
-        encodedMessage = proto.Message.encode(payload).finish();
+        encodedMessage = proto.Message.encode(proto.Message.fromObject(payload)).finish();
       }
     }, 'audio-chat', message);
 
@@ -943,32 +944,29 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     );
 
     const outer = protobuf.Reader.create(encodedMessage);
-    assert.equal(outer.uint32(), (134 << 3) | 2);
-    const futureProof = protobuf.Reader.create(outer.bytes());
-    assert.equal(futureProof.uint32(), (1 << 3) | 2);
-    const wrappedMessage = protobuf.Reader.create(futureProof.bytes());
-    assert.equal(wrappedMessage.uint32(), (26 << 3) | 2);
+    assert.equal(outer.uint32(), (26 << 3) | 2);
 
-    const nestedSticker = protobuf.Reader.create(wrappedMessage.bytes());
-    const stickerFields = [];
+    const nestedSticker = protobuf.Reader.create(outer.bytes());
+    const audioFields = [];
     while (nestedSticker.pos < nestedSticker.len) {
       const tag = nestedSticker.uint32();
       const fieldNumber = tag >>> 3;
       const wireType = tag & 7;
       if (fieldNumber === 26 && wireType === 2) {
-        stickerFields.push(nestedSticker.bytes());
+        audioFields.push(nestedSticker.bytes());
       } else {
         nestedSticker.skipType(wireType);
       }
     }
-    assert.equal(stickerFields.length, 1);
-    assert.equal(proto.Message.AudioMessage.decode(stickerFields[0]).mimetype, 'audio/ogg; codecs=opus');
+    assert.equal(audioFields.length, 1);
+    assert.equal(proto.Message.AudioMessage.decode(audioFields[0]).mimetype, 'audio/ogg; codecs=opus');
   } finally {
     childProcess.spawn = originalSpawn;
     baileysModule.exports = originalBaileysExports;
-    proto.Message.encode = originalEncode;
-    if (originalState) Object.defineProperty(proto.Message, stateKey, originalState);
-    else delete proto.Message[stateKey];
+    proto.Message.StickerMessage.encode = originalStickerEncode;
+    proto.Message.StickerMessage.fromObject = originalStickerFromObject;
+    if (originalPatch) Object.defineProperty(proto.Message.StickerMessage, patchKey, originalPatch);
+    else delete proto.Message.StickerMessage[patchKey];
     if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
     else delete require.cache[commandPath];
   }

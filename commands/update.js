@@ -174,10 +174,7 @@ async function updateViaZip(sock, chatId, message, zipOverride) {
     return { copiedFiles: copied };
 }
 
-async function restartProcess(sock, chatId, message) {
-    try {
-        await sock.sendMessage(chatId, { text: '✅ Update complete! Restarting…' }, { quoted: message });
-    } catch {}
+async function restartProcess() {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     // PM2 restarts this process after it exits. PM2_HOME can be set even when
@@ -225,13 +222,8 @@ async function updateCommand(sock, chatId, message, zipOverride) {
             const { copiedFiles } = await updateViaZip(sock, chatId, message, zipOverride);
             // silent
         }
-        try {
-            const v = require('../settings').version || '';
-            await sock.sendMessage(chatId, { text: `✅ Update done. Restarting…` }, { quoted: message });
-        } catch {
-            await sock.sendMessage(chatId, { text: '✅ Restared Successfully\n Type .ping to check latest version.' }, { quoted: message });
-        }
-        await restartProcess(sock, chatId, message);
+        await sock.sendMessage(chatId, { text: '✅ Update done. Restarting…' }, { quoted: message });
+        await restartProcess();
     } catch (err) {
         console.error('Update failed:', err);
         await sock.sendMessage(chatId, { text: `❌ Update failed:\n${String(err.message || err)}` }, { quoted: message });

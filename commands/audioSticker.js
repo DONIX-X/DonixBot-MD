@@ -8,65 +8,41 @@ const ffmpegPath = require('ffmpeg-static') || 'ffmpeg';
 const settings = require('../settings');
 
 const MAX_STICKER_BYTES = 900 * 1024;
+const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const stickerProfiles = [
     { duration: 5, fps: 15, quality: 60 },
     { duration: 4, fps: 10, quality: 35 },
     { duration: 3, fps: 8, quality: 20 },
     { duration: 2, fps: 6, quality: 15 }
 ];
-const stateKey = Symbol.for('donixbot.audioStickerState');
-let state = proto.Message[stateKey];
 
-function encodeVarint(value) {
-    const bytes = [];
-    while (value > 0x7f) {
-        bytes.push((value & 0x7f) | 0x80);
-        value = Math.floor(value / 128);
-    }
-    bytes.push(value);
-    return Buffer.from(bytes);
-}
+if (!proto.Message.StickerMessage[audioStickerPatchKey]) {
+    const originalStickerEncode = proto.Message.StickerMessage.encode;
+    const originalStickerFromObject = proto.Message.StickerMessage.fromObject;
 
-function encodeBytesField(fieldNumber, value) {
-    return Buffer.concat([
-        encodeVarint((fieldNumber << 3) | 2),
-        encodeVarint(value.length),
-        value
-    ]);
-}
-
-if (!state) {
-    state = { pendingAudioByStickerHash: new Map() };
-    const originalEncode = proto.Message.encode.bind(proto.Message);
-
-    // Audio stickers use an undocumented FutureProofMessage field not present in Baileys' schema.
-    proto.Message.encode = function (message, writer) {
-        const sticker = message?.stickerMessage;
-        const stickerHash = sticker?.fileSha256
-            ? Buffer.from(sticker.fileSha256).toString('base64')
-            : null;
-        const audio = stickerHash && state.pendingAudioByStickerHash.get(stickerHash);
-        if (!audio) return originalEncode(message, writer);
-
-        const encodedSticker = proto.Message.StickerMessage.encode(sticker).finish();
-        const encodedAudio = proto.Message.AudioMessage.encode(audio).finish();
-        const stickerWithAudio = Buffer.concat([
-            encodedSticker,
-            encodeBytesField(26, encodedAudio)
-        ]);
-        const futureProofMessage = encodeBytesField(
-            1,
-            encodeBytesField(26, stickerWithAudio)
-        );
-        const outputWriter = writer || originalEncode({}, undefined);
-        outputWriter.uint32((134 << 3) | 2).bytes(futureProofMessage);
-
-        const remainingMessage = { ...message };
-        delete remainingMessage.stickerMessage;
-        return originalEncode(remainingMessage, outputWriter);
+    proto.Message.StickerMessage.encode = function (sticker, writer) {
+        const outputWriter = originalStickerEncode.call(this, sticker, writer);
+        if (sticker?.audioMessage) {
+            proto.Message.AudioMessage.encode(
+                sticker.audioMessage,
+                outputWriter.uint32((26 << 3) | 2).fork()
+            ).ldelim();
+        }
+        return outputWriter;
     };
 
-    Object.defineProperty(proto.Message, stateKey, { value: state, configurable: true });
+    proto.Message.StickerMessage.fromObject = function (object) {
+        const sticker = originalStickerFromObject.call(this, object);
+        if (object?.audioMessage) {
+            sticker.audioMessage = proto.Message.AudioMessage.fromObject(object.audioMessage);
+        }
+        return sticker;
+    };
+
+    Object.defineProperty(proto.Message.StickerMessage, audioStickerPatchKey, {
+        value: true,
+        configurable: true
+    });
 }
 
 function unwrapMessage(message) {
@@ -237,7 +213,7 @@ async function audioStickerCommand(sock, chatId, message) {
         }
         const [preparedSticker, preparedAudio] = await Promise.all([
             prepareWAMessageMedia(
-                { sticker: stickerBuffer },
+                { sticker: stickerBuffer, isAnimated: true },
                 { upload: sock.waUploadToServer }
             ),
             prepareWAMessageMedia(
@@ -260,6 +236,7 @@ async function audioStickerCommand(sock, chatId, message) {
         sticker.width = 512;
         sticker.height = 512;
         sticker.isAnimated = true;
+        sticker.stickerSentTs = Date.now();
         sticker.isAvatar = false;
         sticker.isAiSticker = false;
         sticker.isLottie = false;
@@ -267,14 +244,9 @@ async function audioStickerCommand(sock, chatId, message) {
         audio.ptt = false;
         audio.seconds = audio.seconds || profile.duration;
 
-        const stickerHash = Buffer.from(sticker.fileSha256).toString('base64');
-        state.pendingAudioByStickerHash.set(stickerHash, audio);
+        sticker.audioMessage = audio;
         stage = 'sending the sticker';
-        try {
-            await sock.relayMessage(chatId, { stickerMessage: sticker }, {});
-        } finally {
-            state.pendingAudioByStickerHash.delete(stickerHash);
-        }
+        await sock.relayMessage(chatId, { stickerMessage: sticker }, {});
     } catch (error) {
         console.error('Error creating audio sticker:', error);
         const reason = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 200);
