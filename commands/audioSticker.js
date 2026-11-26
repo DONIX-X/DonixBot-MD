@@ -1,4 +1,8 @@
-const { downloadMediaMessage, prepareWAMessageMedia, proto } = require('@whiskeysockets/baileys');
+const {
+    downloadMediaMessage,
+    prepareWAMessageMedia,
+    proto
+} = require('@whiskeysockets/baileys');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -9,12 +13,31 @@ const settings = require('../settings');
 
 const MAX_STICKER_BYTES = 900 * 1024;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
+const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
 const stickerProfiles = [
     { duration: 5, fps: 15, quality: 60 },
     { duration: 4, fps: 10, quality: 35 },
     { duration: 3, fps: 8, quality: 20 },
     { duration: 2, fps: 6, quality: 15 }
 ];
+
+function encodeVarint(value) {
+    const bytes = [];
+    while (value > 0x7f) {
+        bytes.push((value & 0x7f) | 0x80);
+        value = Math.floor(value / 128);
+    }
+    bytes.push(value);
+    return Buffer.from(bytes);
+}
+
+function encodeBytesField(fieldNumber, value) {
+    return Buffer.concat([
+        encodeVarint((fieldNumber << 3) | 2),
+        encodeVarint(value.length),
+        value
+    ]);
+}
 
 if (!proto.Message.StickerMessage[audioStickerPatchKey]) {
     const originalStickerEncode = proto.Message.StickerMessage.encode;
@@ -40,6 +63,36 @@ if (!proto.Message.StickerMessage[audioStickerPatchKey]) {
     };
 
     Object.defineProperty(proto.Message.StickerMessage, audioStickerPatchKey, {
+        value: true,
+        configurable: true
+    });
+}
+
+if (!proto.Message[audioStickerMessagePatchKey]) {
+    const originalMessageEncode = proto.Message.encode;
+
+    proto.Message.encode = function (message, writer) {
+        const sticker = message?.stickerMessage;
+        if (!sticker?.audioMessage) {
+            return originalMessageEncode.call(this, message, writer);
+        }
+
+        const encodedSticker = proto.Message.StickerMessage.encode(sticker).finish();
+        const futureProofMessage = encodeBytesField(
+            1,
+            encodeBytesField(26, encodedSticker)
+        );
+        const outputWriter = writer || originalMessageEncode.call(this, {}, undefined);
+
+        // Keep stickerMessage visible to Baileys' relay code so it sets mediatype="sticker".
+        outputWriter.uint32((134 << 3) | 2).bytes(futureProofMessage);
+
+        const remainingMessage = { ...message };
+        delete remainingMessage.stickerMessage;
+        return originalMessageEncode.call(this, remainingMessage, outputWriter);
+    };
+
+    Object.defineProperty(proto.Message, audioStickerMessagePatchKey, {
         value: true,
         configurable: true
     });
@@ -129,11 +182,49 @@ async function createAudioTrack(videoPath, outputPath, duration) {
         '-ac', '1',
         '-ar', '48000',
         '-c:a', 'libopus',
-        '-b:a', '32k',
+        '-b:a', '64k',
         '-application', 'audio',
+        '-vbr', 'on',
+        '-compression_level', '10',
+        '-frame_duration', '20',
+        '-avoid_negative_ts', 'make_zero',
         '-f', 'ogg',
         outputPath
     ]);
+}
+
+async function createAudioWaveform(audioPath, outputPath) {
+    await runFfmpeg([
+        '-i', audioPath,
+        '-map', '0:a:0',
+        '-ac', '1',
+        '-ar', '8000',
+        '-f', 's16le',
+        outputPath
+    ]);
+
+    const pcm = fs.readFileSync(outputPath);
+    const sampleCount = Math.floor(pcm.length / 2);
+    if (!sampleCount) {
+        throw new Error('FFmpeg produced no audio samples for the waveform.');
+    }
+
+    const amplitudes = new Float64Array(64);
+    let peak = 0;
+    for (let index = 0; index < amplitudes.length; index += 1) {
+        const start = Math.floor(index * sampleCount / amplitudes.length);
+        const end = Math.max(start + 1, Math.floor((index + 1) * sampleCount / amplitudes.length));
+        let total = 0;
+        let count = 0;
+        for (let sample = start; sample < Math.min(end, sampleCount); sample += 1) {
+            total += Math.abs(pcm.readInt16LE(sample * 2));
+            count += 1;
+        }
+        amplitudes[index] = count ? total / count : 0;
+        peak = Math.max(peak, amplitudes[index]);
+    }
+
+    return Uint8Array.from(amplitudes, amplitude => peak ? Math.round(amplitude * 100 / peak) : 0);
 }
 
 async function addAudioStickerMetadata(stickerBuffer, audioHash) {
@@ -193,6 +284,7 @@ async function audioStickerCommand(sock, chatId, message) {
         tempDir = fs.mkdtempSync(path.join(tempRoot, 'audio-sticker-'));
         const videoPath = path.join(tempDir, 'source-video');
         const audioPath = path.join(tempDir, 'sticker-audio.ogg');
+        const waveformPath = path.join(tempDir, 'sticker-audio.pcm');
         fs.writeFileSync(videoPath, videoBuffer);
 
         stage = 'converting the video';
@@ -204,6 +296,7 @@ async function audioStickerCommand(sock, chatId, message) {
             throw new Error('FFmpeg produced an empty audio track.');
         }
         const audioHash = crypto.createHash('sha256').update(audioBuffer).digest('base64');
+        const waveform = await createAudioWaveform(audioPath, waveformPath);
         stage = 'adding sticker metadata';
         const stickerBuffer = await addAudioStickerMetadata(fs.readFileSync(stickerPath), audioHash);
 
@@ -232,6 +325,10 @@ async function audioStickerCommand(sock, chatId, message) {
         if (!sticker?.fileSha256 || !audio?.fileSha256 || !audio?.mediaKey || !audio?.directPath) {
             throw new Error('WhatsApp media upload returned incomplete sticker or audio data.');
         }
+        if (!Buffer.from(audio.fileSha256).equals(Buffer.from(audioHash, 'base64'))) {
+            throw new Error('The uploaded audio hash does not match the sticker sound metadata.');
+        }
+        audio.waveform = waveform;
 
         sticker.width = 512;
         sticker.height = 512;

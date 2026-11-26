@@ -852,8 +852,11 @@ test('.as sends a video sticker with an embedded audio track', async () => {
   const baileysModule = require.cache[baileysPath] || require(baileysPath);
   const originalBaileysExports = baileysModule.exports;
   const proto = originalBaileysExports.proto;
+  const originalMessageEncode = proto.Message.encode;
   const originalStickerEncode = proto.Message.StickerMessage.encode;
   const originalStickerFromObject = proto.Message.StickerMessage.fromObject;
+  const messagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
+  const originalMessagePatch = Object.getOwnPropertyDescriptor(proto.Message, messagePatchKey);
   const patchKey = Symbol.for('donixbot.audioStickerProtoPatch');
   const originalPatch = Object.getOwnPropertyDescriptor(proto.Message.StickerMessage, patchKey);
   const originalSpawn = childProcess.spawn;
@@ -881,7 +884,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       audioSeconds = content.seconds;
       return {
         audioMessage: {
-          fileSha256: Buffer.alloc(32, 2),
+          fileSha256: require('node:crypto').createHash('sha256').update('fake-ogg-audio').digest(),
           mediaKey: Buffer.alloc(32, 3),
           directPath: '/audio-path',
           mimetype: content.mimetype
@@ -894,9 +897,17 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     const child = new EventEmitter();
     child.stderr = new EventEmitter();
     setImmediate(() => {
-      const output = args.includes('libwebp')
-        ? fs.readFileSync(path.join(__dirname, '../assets/stickintro.webp'))
-        : Buffer.from('fake-ogg-audio');
+      let output;
+      if (args.includes('libwebp')) {
+        output = fs.readFileSync(path.join(__dirname, '../assets/stickintro.webp'));
+      } else if (args.includes('s16le')) {
+        output = Buffer.alloc(128 * 2);
+        for (let sample = 0; sample < 128; sample += 1) {
+          output.writeInt16LE(sample * 100, sample * 2);
+        }
+      } else {
+        output = Buffer.from('fake-ogg-audio');
+      }
       fs.writeFileSync(args[args.length - 1], output);
       child.emit('close', 0);
     });
@@ -927,12 +938,15 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       }
     }, 'audio-chat', message);
 
-    assert.equal(ffmpegArgs.length, 2, sentMessages.map(entry => entry[1].text).join(' | '));
+    assert.equal(ffmpegArgs.length, 3, sentMessages.map(entry => entry[1].text).join(' | '));
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[0].includes('-fps_mode'));
     assert.ok(ffmpegArgs[0].includes('passthrough'));
     assert.ok(ffmpegArgs[1].includes('0:a:0'));
     assert.ok(ffmpegArgs[1].includes('libopus'));
+    assert.ok(ffmpegArgs[1].includes('64k'));
+    assert.ok(ffmpegArgs[1].includes('20'));
+    assert.ok(ffmpegArgs[2].includes('s16le'));
     assert.equal(audioSeconds, 5);
     assert.equal(sentMessages.length, 1);
     const stickerImage = new (require('node-webpmux').Image)();
@@ -944,9 +958,13 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     );
 
     const outer = protobuf.Reader.create(encodedMessage);
-    assert.equal(outer.uint32(), (26 << 3) | 2);
+    assert.equal(outer.uint32(), (134 << 3) | 2);
+    const futureProof = protobuf.Reader.create(outer.bytes());
+    assert.equal(futureProof.uint32(), (1 << 3) | 2);
+    const wrappedMessage = protobuf.Reader.create(futureProof.bytes());
+    assert.equal(wrappedMessage.uint32(), (26 << 3) | 2);
 
-    const nestedSticker = protobuf.Reader.create(outer.bytes());
+    const nestedSticker = protobuf.Reader.create(wrappedMessage.bytes());
     const audioFields = [];
     while (nestedSticker.pos < nestedSticker.len) {
       const tag = nestedSticker.uint32();
@@ -959,12 +977,18 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       }
     }
     assert.equal(audioFields.length, 1);
-    assert.equal(proto.Message.AudioMessage.decode(audioFields[0]).mimetype, 'audio/ogg; codecs=opus');
+    const embeddedAudio = proto.Message.AudioMessage.decode(audioFields[0]);
+    assert.equal(embeddedAudio.mimetype, 'audio/ogg; codecs=opus');
+    assert.equal(embeddedAudio.waveform.length, 64);
+    assert.equal(Math.max(...embeddedAudio.waveform), 100);
   } finally {
     childProcess.spawn = originalSpawn;
     baileysModule.exports = originalBaileysExports;
+    proto.Message.encode = originalMessageEncode;
     proto.Message.StickerMessage.encode = originalStickerEncode;
     proto.Message.StickerMessage.fromObject = originalStickerFromObject;
+    if (originalMessagePatch) Object.defineProperty(proto.Message, messagePatchKey, originalMessagePatch);
+    else delete proto.Message[messagePatchKey];
     if (originalPatch) Object.defineProperty(proto.Message.StickerMessage, patchKey, originalPatch);
     else delete proto.Message.StickerMessage[patchKey];
     if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
