@@ -178,21 +178,28 @@ async function restartProcess(sock, chatId, message) {
     try {
         await sock.sendMessage(chatId, { text: '✅ Update complete! Restarting…' }, { quoted: message });
     } catch {}
-    try {
-        await run('pm2 restart all');
-    } catch {}
-    setTimeout(() => {
-        if (!process.env.pm_id && !process.env.PM2_HOME) {
-            const child = spawn(process.execPath, process.argv.slice(1), {
-                cwd: process.cwd(),
-                env: process.env,
-                detached: true,
-                stdio: 'ignore'
-            });
-            child.unref();
-        }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // PM2 restarts this process after it exits. PM2_HOME can be set even when
+    // this process is not managed by PM2, so only pm_id identifies that case.
+    if (process.env.pm_id !== undefined) {
         process.exit(0);
-    }, 1000);
+        return;
+    }
+
+    const child = spawn(process.execPath, process.argv.slice(1), {
+        cwd: process.cwd(),
+        env: process.env,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true
+    });
+    await new Promise((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+    });
+    child.unref();
+    process.exit(0);
 }
 
 async function updateCommand(sock, chatId, message, zipOverride) {

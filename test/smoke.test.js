@@ -68,6 +68,7 @@ test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.sudo'), true);
   assert.equal(isCommandAllowed('.pair'), true);
   assert.equal(isCommandAllowed('.github'), true);
+  assert.equal(isCommandAllowed('.as'), true);
   const downloadCommands = [
     '.vv', '.url', '.tourl', '.play', '.mp3', '.ytmp3', '.song', '.music', '.video', '.ytmp4',
     '.spotify', '.instagram', '.insta', '.ig', '.igsc', '.igs', '.facebook', '.fb',
@@ -86,6 +87,7 @@ test('command allowlist recognizes bot commands', () => {
   for (const command of ['.chatbot', '.git', '.sc', '.script', '.repo']) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
   }
+  assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.as'), true);
   for (const command of downloadCommands) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
   }
@@ -838,5 +840,131 @@ test('vv refreshes stored media that has no download URL before trying to downlo
     else delete require.cache[commandPath];
     if (priorMessages) store.messages[chatId] = priorMessages;
     else delete store.messages[chatId];
+  }
+});
+
+test('.as sends a video sticker with an embedded audio track', async () => {
+  const { EventEmitter } = require('node:events');
+  const fs = require('node:fs');
+  const childProcess = require('node:child_process');
+  const protobuf = require('protobufjs/minimal');
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const baileysModule = require.cache[baileysPath] || require(baileysPath);
+  const originalBaileysExports = baileysModule.exports;
+  const proto = originalBaileysExports.proto;
+  const originalEncode = proto.Message.encode;
+  const stateKey = Symbol.for('donixbot.audioStickerState');
+  const originalState = Object.getOwnPropertyDescriptor(proto.Message, stateKey);
+  const originalSpawn = childProcess.spawn;
+  const commandPath = require.resolve('../commands/audioSticker');
+  const originalCommandModule = require.cache[commandPath];
+  const sentMessages = [];
+  const ffmpegArgs = [];
+  let encodedMessage;
+  let stickerUploadBuffer;
+
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadMediaMessage: async (sourceMessage, type) => {
+      assert.equal(sourceMessage.key.remoteJid, 'audio-chat');
+      assert.equal(sourceMessage.key.id, 'video-message');
+      assert.equal(type, 'buffer');
+      return Buffer.from('fake-video');
+    },
+    prepareWAMessageMedia: async content => {
+      if (content.sticker) {
+        stickerUploadBuffer = content.sticker;
+        return { stickerMessage: { fileSha256: Buffer.alloc(32, 1), mimetype: 'image/webp' } };
+      }
+      return {
+        audioMessage: {
+          fileSha256: Buffer.alloc(32, 2),
+          mediaKey: Buffer.alloc(32, 3),
+          directPath: '/audio-path',
+          mimetype: content.mimetype
+        }
+      };
+    }
+  };
+  childProcess.spawn = (_executable, args) => {
+    ffmpegArgs.push(args);
+    const child = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => {
+      const output = args.includes('libwebp')
+        ? fs.readFileSync(path.join(__dirname, '../assets/stickintro.webp'))
+        : Buffer.from('fake-ogg-audio');
+      fs.writeFileSync(args[args.length - 1], output);
+      child.emit('close', 0);
+    });
+    return child;
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const audioStickerCommand = require(commandPath);
+    const message = {
+      key: { remoteJid: 'audio-chat' },
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            stanzaId: 'video-message',
+            quotedMessage: { videoMessage: { mimetype: 'video/mp4' } }
+          }
+        }
+      }
+    };
+
+    await audioStickerCommand({
+      updateMediaMessage: async sourceMessage => sourceMessage,
+      waUploadToServer: async () => ({}),
+      sendMessage: async (...args) => sentMessages.push(args),
+      relayMessage: async (_chatId, payload) => {
+        encodedMessage = proto.Message.encode(payload).finish();
+      }
+    }, 'audio-chat', message);
+
+    assert.equal(ffmpegArgs.length, 2, sentMessages.map(entry => entry[1].text).join(' | '));
+    assert.ok(ffmpegArgs[0].includes('libwebp'));
+    assert.ok(ffmpegArgs[1].includes('0:a:0'));
+    assert.ok(ffmpegArgs[1].includes('libopus'));
+    assert.equal(sentMessages.length, 1);
+    const stickerImage = new (require('node-webpmux').Image)();
+    await stickerImage.load(stickerUploadBuffer);
+    const stickerMetadata = JSON.parse(stickerImage.exif.subarray(22).toString());
+    assert.equal(
+      stickerMetadata['sound-sha256'],
+      require('node:crypto').createHash('sha256').update('fake-ogg-audio').digest('base64')
+    );
+
+    const outer = protobuf.Reader.create(encodedMessage);
+    assert.equal(outer.uint32(), (134 << 3) | 2);
+    const futureProof = protobuf.Reader.create(outer.bytes());
+    assert.equal(futureProof.uint32(), (1 << 3) | 2);
+    const wrappedMessage = protobuf.Reader.create(futureProof.bytes());
+    assert.equal(wrappedMessage.uint32(), (26 << 3) | 2);
+
+    const nestedSticker = protobuf.Reader.create(wrappedMessage.bytes());
+    const stickerFields = [];
+    while (nestedSticker.pos < nestedSticker.len) {
+      const tag = nestedSticker.uint32();
+      const fieldNumber = tag >>> 3;
+      const wireType = tag & 7;
+      if (fieldNumber === 26 && wireType === 2) {
+        stickerFields.push(nestedSticker.bytes());
+      } else {
+        nestedSticker.skipType(wireType);
+      }
+    }
+    assert.equal(stickerFields.length, 1);
+    assert.equal(proto.Message.AudioMessage.decode(stickerFields[0]).mimetype, 'audio/ogg; codecs=opus');
+  } finally {
+    childProcess.spawn = originalSpawn;
+    baileysModule.exports = originalBaileysExports;
+    proto.Message.encode = originalEncode;
+    if (originalState) Object.defineProperty(proto.Message, stateKey, originalState);
+    else delete proto.Message[stateKey];
+    if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
+    else delete require.cache[commandPath];
   }
 });
