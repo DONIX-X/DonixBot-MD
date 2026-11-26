@@ -198,6 +198,7 @@ async function audioStickerCommand(sock, chatId, message) {
     }
 
     let tempDir;
+    let stage = 'downloading the video';
     try {
         await sock.sendMessage(chatId, {
             text: '🔊 Creating your audio sticker…'
@@ -218,15 +219,19 @@ async function audioStickerCommand(sock, chatId, message) {
         const audioPath = path.join(tempDir, 'sticker-audio.ogg');
         fs.writeFileSync(videoPath, videoBuffer);
 
+        stage = 'converting the video';
         const { outputPath: stickerPath, profile } = await createAnimatedSticker(videoPath, tempDir);
+        stage = 'extracting audio';
         await createAudioTrack(videoPath, audioPath, profile.duration);
         const audioBuffer = fs.readFileSync(audioPath);
         if (!audioBuffer.length) {
             throw new Error('FFmpeg produced an empty audio track.');
         }
         const audioHash = crypto.createHash('sha256').update(audioBuffer).digest('base64');
+        stage = 'adding sticker metadata';
         const stickerBuffer = await addAudioStickerMetadata(fs.readFileSync(stickerPath), audioHash);
 
+        stage = 'preparing the sticker and audio uploads';
         if (typeof sock.waUploadToServer !== 'function') {
             throw new Error('Baileys media upload is unavailable on this socket.');
         }
@@ -236,7 +241,12 @@ async function audioStickerCommand(sock, chatId, message) {
                 { upload: sock.waUploadToServer }
             ),
             prepareWAMessageMedia(
-                { audio: audioBuffer, mimetype: 'audio/ogg; codecs=opus', ptt: false },
+                {
+                    audio: audioBuffer,
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: false,
+                    seconds: profile.duration
+                },
                 { upload: sock.waUploadToServer }
             )
         ]);
@@ -259,6 +269,7 @@ async function audioStickerCommand(sock, chatId, message) {
 
         const stickerHash = Buffer.from(sticker.fileSha256).toString('base64');
         state.pendingAudioByStickerHash.set(stickerHash, audio);
+        stage = 'sending the sticker';
         try {
             await sock.relayMessage(chatId, { stickerMessage: sticker }, {});
         } finally {
@@ -266,8 +277,9 @@ async function audioStickerCommand(sock, chatId, message) {
         }
     } catch (error) {
         console.error('Error creating audio sticker:', error);
+        const reason = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 200);
         await sock.sendMessage(chatId, {
-            text: '❌ Could not create the audio sticker. Reply to a video that contains audio and try again.'
+            text: `❌ Audio sticker failed while ${stage}: ${reason}`
         }, { quoted: message });
     } finally {
         if (tempDir) {

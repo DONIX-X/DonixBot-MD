@@ -862,6 +862,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
   const ffmpegArgs = [];
   let encodedMessage;
   let stickerUploadBuffer;
+  let audioSeconds;
 
   baileysModule.exports = {
     ...originalBaileysExports,
@@ -876,6 +877,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
         stickerUploadBuffer = content.sticker;
         return { stickerMessage: { fileSha256: Buffer.alloc(32, 1), mimetype: 'image/webp' } };
       }
+      audioSeconds = content.seconds;
       return {
         audioMessage: {
           fileSha256: Buffer.alloc(32, 2),
@@ -928,6 +930,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[1].includes('0:a:0'));
     assert.ok(ffmpegArgs[1].includes('libopus'));
+    assert.equal(audioSeconds, 5);
     assert.equal(sentMessages.length, 1);
     const stickerImage = new (require('node-webpmux').Image)();
     await stickerImage.load(stickerUploadBuffer);
