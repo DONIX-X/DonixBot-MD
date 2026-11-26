@@ -928,6 +928,8 @@ test('.as sends a video sticker with an embedded audio track', async () => {
 
     assert.equal(ffmpegArgs.length, 2, sentMessages.map(entry => entry[1].text).join(' | '));
     assert.ok(ffmpegArgs[0].includes('libwebp'));
+    assert.ok(ffmpegArgs[0].includes('-fps_mode'));
+    assert.ok(ffmpegArgs[0].includes('passthrough'));
     assert.ok(ffmpegArgs[1].includes('0:a:0'));
     assert.ok(ffmpegArgs[1].includes('libopus'));
     assert.equal(audioSeconds, 5);

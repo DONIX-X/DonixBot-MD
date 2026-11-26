@@ -132,7 +132,7 @@ async function createAnimatedSticker(videoPath, tempDir) {
             '-loop', '0',
             '-preset', 'picture',
             '-an',
-            '-vsync', '0',
+            '-fps_mode', 'passthrough',
             outputPath
         ]);
 
