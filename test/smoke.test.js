@@ -1616,7 +1616,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
           mediaKey: Buffer.alloc(32, 3),
           directPath: '/audio-path',
           mimetype: content.mimetype,
-          seconds: 60
+          seconds: 10
         }
       };
     }
@@ -1681,7 +1681,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.ok(ffmpegArgs[0].some(argument => argument.includes('fps=12,scale=512:512')));
     assert.ok(ffmpegArgs[1].some(argument => argument.includes('fps=10,scale=512:512')));
     assert.ok(ffmpegArgs[1].some(argument => argument.includes('pad=512:512')));
-    assert.equal(ffmpegArgs[2][ffmpegArgs[2].indexOf('-t') + 1], '60');
+    assert.equal(ffmpegArgs[2][ffmpegArgs[2].indexOf('-t') + 1], '10');
     assert.ok(ffmpegArgs[2].includes('0:a:0'));
     assert.ok(ffmpegArgs[2].includes('libopus'));
     assert.ok(ffmpegArgs[2].includes('64k'));
@@ -1720,7 +1720,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.equal(audioFields.length, 1);
     const embeddedAudio = proto.Message.AudioMessage.decode(audioFields[0]);
     assert.equal(embeddedAudio.mimetype, 'audio/ogg; codecs=opus');
-    assert.equal(embeddedAudio.seconds, 60);
+    assert.equal(embeddedAudio.seconds, 10);
     assert.equal(embeddedAudio.waveform.length, 64);
     assert.equal(Math.max(...embeddedAudio.waveform), 100);
   } finally {

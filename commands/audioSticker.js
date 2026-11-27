@@ -13,7 +13,6 @@ const settings = require('../settings');
 
 const MAX_STICKER_BYTES = 500 * 1024;
 const MAX_STICKER_ANIMATION_SECONDS = 10;
-const MAX_AUDIO_DURATION_SECONDS = 60;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
 const stickerProfiles = [
@@ -305,7 +304,7 @@ async function audioStickerCommand(sock, chatId, message) {
             stickerDuration
         );
         stage = 'extracting audio';
-        await createAudioTrack(videoPath, audioPath, MAX_AUDIO_DURATION_SECONDS);
+        await createAudioTrack(videoPath, audioPath, stickerDuration);
         const audioBuffer = fs.readFileSync(audioPath);
         if (!audioBuffer.length) {
             throw new Error('FFmpeg produced an empty audio track.');
