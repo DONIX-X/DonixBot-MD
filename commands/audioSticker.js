@@ -12,14 +12,24 @@ const ffmpegPath = require('ffmpeg-static') || 'ffmpeg';
 const settings = require('../settings');
 
 const MAX_STICKER_BYTES = 500 * 1024;
-const MAX_STICKER_ANIMATION_SECONDS = 10;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
 const stickerProfiles = [
-    { fps: 12, quality: 45, size: 512 },
-    { fps: 10, quality: 30, size: 512 },
-    { fps: 8, quality: 20, size: 512 },
-    { fps: 6, quality: 15, size: 512 }
+    { duration: 60, fps: 8, quality: 30, size: 512 },
+    { duration: 60, fps: 6, quality: 18, size: 512 },
+    { duration: 60, fps: 4, quality: 8, size: 512 },
+    { duration: 60, fps: 3, quality: 5, size: 512 },
+    { duration: 60, fps: 3, quality: 8, size: 384 },
+    { duration: 60, fps: 2, quality: 5, size: 384 },
+    { duration: 60, fps: 2, quality: 3, size: 256 },
+    { duration: 60, fps: 1, quality: 1, size: 256 },
+    { duration: 60, fps: 1, quality: 1, size: 128 },
+    { duration: 45, fps: 6, quality: 15 },
+    { duration: 30, fps: 6, quality: 15 },
+    { duration: 20, fps: 6, quality: 15 },
+    { duration: 15, fps: 6, quality: 15 },
+    { duration: 10, fps: 6, quality: 15 },
+    { duration: 8, fps: 6, quality: 15 }
 ];
 
 function encodeVarint(value) {
@@ -147,14 +157,14 @@ function runFfmpeg(args) {
     });
 }
 
-async function createAnimatedSticker(videoPath, tempDir, duration) {
+async function createAnimatedSticker(videoPath, tempDir) {
     for (let index = 0; index < stickerProfiles.length; index += 1) {
         const profile = stickerProfiles[index];
         const size = profile.size || 512;
         const outputPath = path.join(tempDir, `sticker-${index}.webp`);
         await runFfmpeg([
             '-i', videoPath,
-            '-t', String(duration),
+            '-t', String(profile.duration),
             '-vf', `fps=${profile.fps},scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba`,
             '-vcodec', 'libwebp',
             '-lossless', '0',
@@ -170,9 +180,9 @@ async function createAnimatedSticker(videoPath, tempDir, duration) {
         const outputBytes = fs.statSync(outputPath).size;
         if (outputBytes <= MAX_STICKER_BYTES) {
             console.info(
-                `[.as] Using sticker profile (cap ${duration}s, ${profile.fps} fps, ${size}px source, ${outputBytes} bytes).`
+                `[.as] Using sticker profile (cap ${profile.duration}s, ${profile.fps} fps, ${size}px source, ${outputBytes} bytes).`
             );
-            return { outputPath };
+            return { outputPath, profile };
         }
     }
 
@@ -294,17 +304,9 @@ async function audioStickerCommand(sock, chatId, message) {
         fs.writeFileSync(videoPath, videoBuffer);
 
         stage = 'converting the video';
-        const sourceDuration = Number(quotedVideo.videoMessage.seconds);
-        const stickerDuration = Number.isFinite(sourceDuration) && sourceDuration > 0
-            ? Math.min(MAX_STICKER_ANIMATION_SECONDS, Math.ceil(sourceDuration))
-            : MAX_STICKER_ANIMATION_SECONDS;
-        const { outputPath: stickerPath } = await createAnimatedSticker(
-            videoPath,
-            tempDir,
-            stickerDuration
-        );
+        const { outputPath: stickerPath, profile } = await createAnimatedSticker(videoPath, tempDir);
         stage = 'extracting audio';
-        await createAudioTrack(videoPath, audioPath, stickerDuration);
+        await createAudioTrack(videoPath, audioPath, profile.duration);
         const audioBuffer = fs.readFileSync(audioPath);
         if (!audioBuffer.length) {
             throw new Error('FFmpeg produced an empty audio track.');
