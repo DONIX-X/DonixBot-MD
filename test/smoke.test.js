@@ -8,8 +8,10 @@ const path = require('node:path');
 const settings = require('../settings');
 const { commandGroups, isCommandAllowed } = require('../lib/commandAllowlist');
 const config = require('../config');
+const aiCommand = require('../commands/ai');
 const aliveCommand = require('../commands/alive');
 const helpCommand = require('../commands/help');
+const imagineCommand = require('../commands/imagine');
 const newMenuCommand = require('../commands/newMenu');
 const { fileTypeFromBuffer } = require('../lib/fileType');
 
@@ -24,29 +26,36 @@ test('update preserves the existing bot mode and counters when replacing the rep
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'donix-update-mode-test-'));
   const dataFile = path.join(directory, 'messageCount.json');
   const modeFile = path.join(directory, 'botMode.json');
+  const commandFile = path.join(directory, 'commandOverrides.json');
   const originalContent = JSON.stringify({
     isPublic: false,
     messageCount: { 'chat-id': { 'user-id': 3 } }
   }, null, 2);
   const originalMode = JSON.stringify({ isPublic: false }, null, 2);
+  const originalCommands = JSON.stringify({ overrides: { '.meme': true } }, null, 2);
 
   try {
     await fs.writeFile(dataFile, originalContent);
     await fs.writeFile(modeFile, originalMode);
+    await fs.writeFile(commandFile, originalCommands);
     await preserveMessageCountFileDuringUpdate(async () => {
       await fs.writeFile(dataFile, JSON.stringify({ isPublic: true, messageCount: {} }));
       await fs.writeFile(modeFile, JSON.stringify({ isPublic: true }));
-    }, dataFile, modeFile);
+      await fs.writeFile(commandFile, JSON.stringify({ overrides: {} }));
+    }, dataFile, modeFile, commandFile);
     assert.equal(await fs.readFile(dataFile, 'utf8'), originalContent);
     assert.equal(await fs.readFile(modeFile, 'utf8'), originalMode);
+    assert.equal(await fs.readFile(commandFile, 'utf8'), originalCommands);
 
     await assert.rejects(preserveMessageCountFileDuringUpdate(async () => {
       await fs.writeFile(dataFile, JSON.stringify({ isPublic: true, messageCount: {} }));
       await fs.writeFile(modeFile, JSON.stringify({ isPublic: true }));
+      await fs.writeFile(commandFile, JSON.stringify({ overrides: {} }));
       throw new Error('simulated update failure');
-    }, dataFile, modeFile), /simulated update failure/);
+    }, dataFile, modeFile, commandFile), /simulated update failure/);
     assert.equal(await fs.readFile(dataFile, 'utf8'), originalContent);
     assert.equal(await fs.readFile(modeFile, 'utf8'), originalMode);
+    assert.equal(await fs.readFile(commandFile, 'utf8'), originalCommands);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
@@ -123,6 +132,7 @@ test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.pair'), true);
   assert.equal(isCommandAllowed('.github'), true);
   assert.equal(isCommandAllowed('.as'), true);
+  assert.equal(isCommandAllowed('.imagine'), true);
   assert.equal(isCommandAllowed('.vv'), true);
   assert.equal(isCommandAllowed('.me'), false);
   const downloadCommands = [
@@ -152,12 +162,147 @@ test('command allowlist recognizes bot commands', () => {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
   }
   assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.as'), true);
+  assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.imagine'), true);
   for (const command of downloadCommands) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
   }
   for (const command of importedCommands) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
   }
+});
+
+test('command manager enables and disables only implemented commands', () => {
+  const {
+    getDisabledCommands,
+    getVisibleCommandGroups,
+    isCommandAllowed,
+    setCommandEnabled
+  } = require('../lib/commandAllowlist');
+  const directory = fsSync.mkdtempSync(path.join(os.tmpdir(), 'donix-command-manager-test-'));
+  const filePath = path.join(directory, 'commandOverrides.json');
+  const options = { filePath };
+
+  try {
+    assert.equal(isCommandAllowed('.meme', options), false);
+    assert.equal(getDisabledCommands(options).includes('.meme'), true);
+
+    assert.deepEqual(setCommandEnabled('meme', true, options), { ok: true, changed: true });
+    assert.equal(isCommandAllowed('.meme', options), true);
+    assert.equal(getVisibleCommandGroups(options).some(group => group.commands.includes('.meme')), true);
+
+    assert.deepEqual(setCommandEnabled('.ping', false, options), { ok: true, changed: true });
+    assert.equal(isCommandAllowed('.ping', options), false);
+    assert.equal(getDisabledCommands(options).includes('.ping'), true);
+    assert.deepEqual(setCommandEnabled('.notimplemented', true, options), { ok: false, reason: 'unknown' });
+    assert.deepEqual(setCommandEnabled('.dismenu', false, options), { ok: false, reason: 'protected' });
+  } finally {
+    fsSync.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('.gemini uses the no-key AI provider and returns generated text', async () => {
+  const sentMessages = [];
+  const requests = [];
+  const message = {
+    key: { id: 'gemini-message', remoteJid: 'gemini-chat' },
+    message: {
+      ephemeralMessage: {
+        message: { conversation: '.gemini explain rainbows' }
+      }
+    }
+  };
+
+  await aiCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'gemini-chat', message, {
+    post: async (...args) => {
+      requests.push(args);
+      return {
+        data: 'Light bends. Colors separate.'
+      };
+    }
+  });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0][0], 'https://text.pollinations.ai/');
+  assert.deepEqual(requests[0][1].messages, [{ role: 'user', content: 'explain rainbows' }]);
+  assert.equal(requests[0][2].timeout, 30000);
+  assert.equal(sentMessages.at(-1)[1].text, 'Light bends. Colors separate.');
+  assert.equal(sentMessages.at(-1)[2].quoted, message);
+});
+
+test('.gemini reports free-provider rate limits clearly', async () => {
+  const sentMessages = [];
+  await aiCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'gemini-chat', {
+    key: { id: 'gemini-message' },
+    message: { conversation: '.gemini hi' }
+  }, {
+    post: async () => {
+      const error = new Error('free quota exhausted');
+      error.response = { status: 402 };
+      throw error;
+    }
+  });
+
+  assert.match(sentMessages.at(-1)[1].text, /rate-limited/);
+});
+
+test('.imagine generates an image from an ephemeral WhatsApp prompt', async () => {
+  const sentMessages = [];
+  const requests = [];
+  const message = {
+    key: { id: 'imagine-message', remoteJid: 'imagine-chat' },
+    message: {
+      ephemeralMessage: {
+        message: { conversation: '.imagine a friendly orange cat' }
+      }
+    }
+  };
+
+  await imagineCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'imagine-chat', message, {
+    get: async (...args) => {
+      requests.push(args);
+      return {
+        data: Buffer.from('image-bytes'),
+        headers: { 'content-type': 'image/jpeg' }
+      };
+    }
+  });
+
+  assert.equal(requests.length, 1);
+  const requestUrl = new URL(requests[0][0]);
+  assert.equal(requestUrl.hostname, 'image.pollinations.ai');
+  assert.match(decodeURIComponent(requestUrl.pathname), /a friendly orange cat/);
+  assert.equal(requestUrl.searchParams.get('safe'), 'true');
+  assert.equal(requests[0][1].responseType, 'arraybuffer');
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[1][1].image.toString(), 'image-bytes');
+  assert.equal(sentMessages[1][1].caption, '🎨 a friendly orange cat');
+  assert.equal(sentMessages[1][2].quoted, message);
+});
+
+test('.imagine reports temporary provider outages with retry timing', async () => {
+  const sentMessages = [];
+  const message = {
+    key: { id: 'imagine-failed-message' },
+    message: { conversation: '.imagine a cat' }
+  };
+  await imagineCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'imagine-chat', message, {
+    get: async () => {
+      const error = new Error('Service unavailable');
+      error.response = { status: 503, headers: { 'retry-after': '10' } };
+      throw error;
+    }
+  });
+
+  assert.match(sentMessages.at(-1)[1].text, /temporarily busy/);
+  assert.match(sentMessages.at(-1)[1].text, /retry in 10 seconds/);
 });
 
 test('.mnew renders the Jarvis-style runtime header and command categories', async () => {
@@ -184,6 +329,8 @@ test('.mnew renders the Jarvis-style runtime header and command categories', asy
   assert.match(sentMessages[0][1].caption, /Test User/);
   assert.match(sentMessages[0][1].caption, /GENERAL/);
   assert.match(sentMessages[0][1].caption, /\.mnew/);
+  assert.match(sentMessages[0][1].caption, /\.dismenu/);
+  assert.match(sentMessages[0][1].caption, /\.encommand/);
   assert.match(sentMessages[0][1].caption, /\.as/);
   assert.equal(newsletterRequests.length, 1);
   assert.equal(newsletterRequests[0][0], 'invite');
@@ -737,6 +884,7 @@ test('help command sends the animated video menu', async () => {
   assert.ok(Buffer.isBuffer(sentMessages[0][1].video));
   assert.equal(sentMessages[0][1].gifPlayback, true);
   assert.match(sentMessages[0][1].caption, /𝐃𝐎𝐍𝐈𝐗/);
+  assert.match(sentMessages[0][1].caption, /𝐝𝐢𝐬𝐦𝐞𝐧𝐮/);
 });
 
 test('file type helper detects image buffers with the patched ESM package', async () => {

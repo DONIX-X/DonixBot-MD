@@ -1,105 +1,120 @@
 const axios = require('axios');
-const fetch = require('node-fetch');
+const unwrapEphemeralMessage = require('../lib/unwrapEphemeralMessage');
 
-async function aiCommand(sock, chatId, message) {
+const POLLINATIONS_TEXT_API = 'https://text.pollinations.ai/';
+
+function getMessageText(message) {
+    const content = unwrapEphemeralMessage(message.message || {});
+    return content.conversation
+        || content.extendedTextMessage?.text
+        || content.imageMessage?.caption
+        || content.videoMessage?.caption
+        || content.documentMessage?.caption
+        || '';
+}
+
+function extractText(responseData) {
+    if (typeof responseData === 'string') {
+        const text = responseData.trim();
+        if (text) return text;
+    } else if (responseData && typeof responseData === 'object') {
+        const text = responseData.choices?.[0]?.message?.content
+            || responseData.answer
+            || responseData.text;
+        if (typeof text === 'string' && text.trim()) return text.trim();
+        if (responseData.error) {
+            throw new Error(typeof responseData.error === 'string'
+                ? responseData.error
+                : JSON.stringify(responseData.error));
+        }
+    }
+
+    throw new Error('AI provider returned an empty response.');
+}
+
+async function requestPollinations(query, options = {}) {
+    const post = options.post || axios.post;
+    const response = await post(
+        POLLINATIONS_TEXT_API,
+        { messages: [{ role: 'user', content: query }] },
+        {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000,
+            responseType: 'text'
+        }
+    );
+    return extractText(response.data);
+}
+
+function getAIErrorMessage(error) {
+    const status = error.response?.status;
+    if (status === 402 || status === 429) {
+        return '❌ The free AI service is rate-limited right now. Please wait a bit and try again.';
+    }
+    if (status === 413) {
+        return '❌ That question is too long for the free AI service. Please shorten it and try again.';
+    }
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        return '❌ The AI service took too long to respond. Please try again.';
+    }
+    return '❌ The AI service could not return a response. Please try again later.';
+}
+
+async function aiCommand(sock, chatId, message, options = {}) {
+    const text = getMessageText(message).trim();
+    const commandMatch = text.match(/^(\.[a-z0-9]+)(?:\s+([\s\S]*))?$/i);
+    if (!commandMatch) {
+        await sock.sendMessage(chatId, {
+            text: 'Usage: .gemini <question>\nExample: .gemini explain how rainbows form'
+        }, { quoted: message });
+        return;
+    }
+
+    const command = commandMatch[1].toLowerCase();
+    const query = (commandMatch[2] || '').trim();
+    if (!['.gpt', '.gemini'].includes(command)) {
+        await sock.sendMessage(chatId, { text: 'Use .gpt or .gemini for AI questions.' }, { quoted: message });
+        return;
+    }
+    if (!query) {
+        await sock.sendMessage(chatId, {
+            text: `Please provide a question after ${command}.\nExample: ${command} explain how rainbows form`
+        }, { quoted: message });
+        return;
+    }
+
     try {
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text;
-        
-        if (!text) {
-            return await sock.sendMessage(chatId, { 
-                text: "Please provide a question after .gpt or .gemini\n\nExample: .gpt write a basic html code"
-            }, {
-                quoted: message
-            });
-        }
-
-        // Get the command and query
-        const parts = text.split(' ');
-        const command = parts[0].toLowerCase();
-        const query = parts.slice(1).join(' ').trim();
-
-        if (!query) {
-            return await sock.sendMessage(chatId, { 
-                text: "Please provide a question after .gpt or .gemini"
-            }, {quoted:message});
-        }
-
         try {
-            // Show processing message
             await sock.sendMessage(chatId, {
                 react: { text: '🤖', key: message.key }
             });
-
-            if (command === '.gpt') {
-                // Call the GPT API
-                const response = await axios.get(`https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(query)}`);
-                
-                if (response.data && response.data.status && response.data.result) {
-                    const answer = response.data.result;
-                    await sock.sendMessage(chatId, {
-                        text: answer
-                    }, {
-                        quoted: message
-                    });
-                    
-                } else {
-                    throw new Error('Invalid response from API');
-                }
-            } else if (command === '.gemini') {
-                const apis = [
-                    `https://vapis.my.id/api/gemini?q=${encodeURIComponent(query)}`,
-                    `https://api.siputzx.my.id/api/ai/gemini-pro?content=${encodeURIComponent(query)}`,
-                    `https://api.ryzendesu.vip/api/ai/gemini?text=${encodeURIComponent(query)}`,
-                    `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(query)}`,
-                    `https://api.giftedtech.my.id/api/ai/geminiai?apikey=gifted&q=${encodeURIComponent(query)}`,
-                    `https://api.giftedtech.my.id/api/ai/geminiaipro?apikey=gifted&q=${encodeURIComponent(query)}`
-                ];
-
-                for (const api of apis) {
-                    try {
-                        const response = await fetch(api);
-                        const data = await response.json();
-
-                        if (data.message || data.data || data.answer || data.result) {
-                            const answer = data.message || data.data || data.answer || data.result;
-                            await sock.sendMessage(chatId, {
-                                text: answer
-                            }, {
-                                quoted: message
-                            });
-                            
-                            return;
-                        }
-                    } catch (e) {
-                        continue;
-                    }
-                }
-                throw new Error('All Gemini APIs failed');
-            }
-        } catch (error) {
-            console.error('API Error:', error);
-            await sock.sendMessage(chatId, {
-                text: "❌ Failed to get response. Please try again later.",
-                contextInfo: {
-                    mentionedJid: [message.key.participant || message.key.remoteJid],
-                    quotedMessage: message.message
-                }
-            }, {
-                quoted: message
-            });
+        } catch (reactionError) {
+            console.error('Could not send AI processing reaction:', reactionError);
         }
-    } catch (error) {
-        console.error('AI Command Error:', error);
-        await sock.sendMessage(chatId, {
-            text: "❌ An error occurred. Please try again later.",
-            contextInfo: {
-                mentionedJid: [message.key.participant || message.key.remoteJid],
-                quotedMessage: message.message
+
+        let answer;
+        if (command === '.gemini') {
+            answer = await requestPollinations(query, options);
+        } else {
+            const response = await axios.get(
+                `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(query)}`,
+                { timeout: 30000 }
+            );
+            if (!response.data?.status || !response.data?.result) {
+                throw new Error('Invalid response from GPT API.');
             }
-        }, {
-            quoted: message
-        });
+            answer = response.data.result;
+        }
+
+        await sock.sendMessage(chatId, { text: answer }, { quoted: message });
+    } catch (error) {
+        console.error(`${command} API error:`, error);
+        const text = command === '.gemini'
+            ? getAIErrorMessage(error)
+            : '❌ Failed to get response. Please try again later.';
+        await sock.sendMessage(chatId, { text }, { quoted: message });
     }
 }
 
-module.exports = aiCommand; 
+module.exports = aiCommand;
+module.exports.requestPollinations = requestPollinations;

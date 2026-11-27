@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const settings = require('../settings');
 const packageVersion = require('../package.json').version;
-const { commandGroups } = require('../lib/commandAllowlist');
+const { getVisibleCommandGroups } = require('../lib/commandAllowlist');
 
 function getBotGifVideoPath() {
     const videoPath = path.join(__dirname, '../assets/giphy.mp4');
@@ -64,6 +64,7 @@ async function newMenuCommand(sock, chatId, message) {
         timeStyle: 'medium'
     }).format(now);
     const user = String(message.pushName || 'User').replace(/[\r\n]+/g, ' ').slice(0, 40);
+    const commandGroups = getVisibleCommandGroups();
     const commandCount = commandGroups.reduce((count, group) => count + group.commands.length, 0);
     const categories = commandGroups
         .map(({ title, commands }) => createCategorySection(title, commands))
@@ -83,6 +84,8 @@ async function newMenuCommand(sock, chatId, message) {
         '╰━━━━━━━━━━━━━━━···▸',
         '',
         categories,
+        '',
+        'Use .dismenu to view disabled commands; owners can manage them with .encommand and .discommand.',
         '',
         '╰━━━━━━━━━━━┈⊷',
         'made with 🤍'

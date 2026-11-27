@@ -5,6 +5,7 @@ const https = require('https');
 const settings = require('../settings');
 const isOwnerOrSudo = require('../lib/isOwner');
 const { botModePath, messageCountPath } = require('../lib/botMode');
+const { commandSettingsPath } = require('../lib/commandAllowlist');
 
 function run(cmd) {
     return new Promise((resolve, reject) => {
@@ -41,9 +42,10 @@ async function updateViaGit() {
 async function preserveMessageCountFileDuringUpdate(
     update,
     filePath = messageCountPath,
-    modeFilePath = botModePath
+    modeFilePath = botModePath,
+    commandSettingsFilePath = commandSettingsPath
 ) {
-    const fileSnapshots = [filePath, modeFilePath].map(file => ({
+    const fileSnapshots = [filePath, modeFilePath, commandSettingsFilePath].map(file => ({
         file,
         content: fs.existsSync(file) ? fs.readFileSync(file) : null
     }));

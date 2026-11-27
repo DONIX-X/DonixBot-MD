@@ -27,7 +27,11 @@ setInterval(() => {
 
 const settings = require('./settings');
 const { loadBotMode, setBotMode } = require('./lib/botMode');
-const { isCommandAllowed } = require('./lib/commandAllowlist');
+const {
+    getDisabledCommands,
+    isCommandAllowed,
+    setCommandEnabled
+} = require('./lib/commandAllowlist');
 const unwrapEphemeralMessage = require('./lib/unwrapEphemeralMessage');
 const { afkCommand, handleAfkMentions } = require('./commands/afk');
 const {
@@ -347,7 +351,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const isAdminCommand = adminCommands.some(cmd => userMessage.startsWith(cmd));
 
         // List of owner commands
-        const ownerCommands = ['.mode', '.sudo', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker', '.startmsg', '.setstartmsg', '.afk', '.join', '.create', '.setname', '.setbio', '.mypp'];
+        const ownerCommands = ['.mode', '.sudo', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker', '.startmsg', '.setstartmsg', '.afk', '.join', '.create', '.setname', '.setbio', '.mypp', '.dismenu', '.encommand', '.discommand'];
         const isOwnerCommand = ownerCommands.some(cmd => userMessage.startsWith(cmd));
 
         let isSenderAdmin = false;
@@ -487,6 +491,60 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage === '.mnew':
                 await newMenuCommand(sock, chatId, message);
                 commandExecuted = true;
+                break;
+            case userMessage === '.dismenu':
+                {
+                    const disabledCommands = getDisabledCommands();
+                    const text = disabledCommands.length
+                        ? `🚫 *Disabled commands (${disabledCommands.length})*\n\n${disabledCommands.join('\n')}`
+                        : '✅ All implemented commands are enabled.';
+                    await sock.sendMessage(chatId, { text, ...channelInfo }, { quoted: message });
+                }
+                break;
+            case userMessage === '.encommand' || userMessage.startsWith('.encommand '):
+            case userMessage === '.discommand' || userMessage.startsWith('.discommand '):
+                {
+                    const enable = userMessage.startsWith('.encommand');
+                    const commandArgument = userMessage.slice(commandName.length).trim().split(/\s+/)[0];
+                    if (!commandArgument) {
+                        await sock.sendMessage(chatId, {
+                            text: `Usage: ${enable ? '.encommand' : '.discommand'} <command>`,
+                            ...channelInfo
+                        }, { quoted: message });
+                        break;
+                    }
+
+                    try {
+                        const result = setCommandEnabled(commandArgument, enable);
+                        if (!result.ok && result.reason === 'unknown') {
+                            await sock.sendMessage(chatId, {
+                                text: '❌ That command is not implemented or recognized.',
+                                ...channelInfo
+                            }, { quoted: message });
+                            break;
+                        }
+                        if (!result.ok && result.reason === 'protected') {
+                            await sock.sendMessage(chatId, {
+                                text: '❌ This command is protected and cannot be disabled.',
+                                ...channelInfo
+                            }, { quoted: message });
+                            break;
+                        }
+
+                        const normalizedCommand = commandArgument.startsWith('.') ? commandArgument.toLowerCase() : `.${commandArgument.toLowerCase()}`;
+                        const status = enable ? 'enabled' : 'disabled';
+                        const text = result.changed
+                            ? `✅ ${normalizedCommand} has been ${status}.`
+                            : `ℹ️ ${normalizedCommand} is already ${status}.`;
+                        await sock.sendMessage(chatId, { text, ...channelInfo }, { quoted: message });
+                    } catch (error) {
+                        console.error('Failed to update command status:', error);
+                        await sock.sendMessage(chatId, {
+                            text: '❌ Could not save the command setting.',
+                            ...channelInfo
+                        }, { quoted: message });
+                    }
+                }
                 break;
             case userMessage === '.sticker' || userMessage === '.s':
                 await stickerCommand(sock, chatId, message);
@@ -1040,7 +1098,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage === '.roseday':
                 await rosedayCommand(sock, chatId, message);
                 break;
-            case userMessage.startsWith('.imagine') || userMessage.startsWith('.flux') || userMessage.startsWith('.dalle'): await imagineCommand(sock, chatId, message);
+            case userMessage === '.imagine' || userMessage.startsWith('.imagine ') ||
+                userMessage === '.flux' || userMessage.startsWith('.flux ') ||
+                userMessage === '.dalle' || userMessage.startsWith('.dalle '):
+                await imagineCommand(sock, chatId, message);
                 break;
             case userMessage === '.jid': await groupJidCommand(sock, chatId, message);
                 break;

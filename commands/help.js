@@ -1,7 +1,7 @@
 ﻿const settings = require('../settings');
 const fs = require('fs');
 const path = require('path');
-const { commandGroups } = require('../lib/commandAllowlist');
+const { getVisibleCommandGroups } = require('../lib/commandAllowlist');
 const packageVersion = require('../package.json').version;
 
 function toMathematicalBold(input = '') {
@@ -44,7 +44,7 @@ function createMenuSection(title, commands) {
 }
 
 async function helpCommand(sock, chatId, message) {
-    const menuSections = commandGroups
+    const menuSections = getVisibleCommandGroups()
         .map(({ title, commands }) => createMenuSection(title, commands))
         .join('\n\n');
 
@@ -58,6 +58,8 @@ async function helpCommand(sock, chatId, message) {
         '╰━━━━━━━━━━━━━━━━━━━━╯',
         '',
         menuSections,
+        '',
+        toMathematicalBold('Use .dismenu to view disabled commands; owners can manage them with .encommand and .discommand.'),
         '',
         '╭━━━━━━━━━━━━━━━━━━━━╮',
         `┃ 🤖 ${toMathematicalBold('DONIX BOT MD')} ${toMathematicalBold(`v${settings.version || '1.0.7'}`)}`,
