@@ -1674,12 +1674,12 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[0].includes('-fps_mode'));
     assert.ok(ffmpegArgs[0].includes('passthrough'));
-    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '14');
+    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '60');
     for (const stickerArgs of ffmpegArgs.slice(0, 2)) {
-      assert.equal(stickerArgs[stickerArgs.indexOf('-t') + 1], '14');
+      assert.equal(stickerArgs[stickerArgs.indexOf('-t') + 1], '60');
     }
-    assert.ok(ffmpegArgs[0].some(argument => argument.includes('fps=4,scale=512:512')));
-    assert.ok(ffmpegArgs[1].some(argument => argument.includes('fps=2,scale=512:512')));
+    assert.ok(ffmpegArgs[0].some(argument => argument.includes('fps=8,scale=512:512')));
+    assert.ok(ffmpegArgs[1].some(argument => argument.includes('fps=4,scale=512:512')));
     assert.ok(ffmpegArgs[1].some(argument => argument.includes('pad=512:512')));
     assert.equal(ffmpegArgs[2][ffmpegArgs[2].indexOf('-t') + 1], '60');
     assert.ok(ffmpegArgs[2].includes('0:a:0'));

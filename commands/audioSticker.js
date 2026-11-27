@@ -28,6 +28,7 @@ function getStickerProfiles(duration) {
                 { fps: 1, quality: 1, size: 512 }
             ]
             : [
+                { fps: 8, quality: 30, size: 512 },
                 { fps: 4, quality: 8, size: 512 },
                 { fps: 2, quality: 3, size: 512 },
                 { fps: 1, quality: 1, size: 512 }
@@ -41,7 +42,10 @@ function getStickerProfiles(duration) {
                 : [10, 8];
 
     return [
-        ...fullDurationProfiles.map(profile => ({ ...profile, duration })),
+        ...fullDurationProfiles.map(profile => ({
+            ...profile,
+            duration: MAX_STICKER_DURATION_SECONDS
+        })),
         ...fallbackDurations
             .filter(fallbackDuration => fallbackDuration < duration)
             .map(fallbackDuration => ({
