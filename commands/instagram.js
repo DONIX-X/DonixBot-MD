@@ -118,7 +118,7 @@ async function instagramCommand(sock, chatId, message) {
                 } else {
                     await sock.sendMessage(chatId, {
                         image: { url: mediaUrl },
-                        caption: "𝗗𝗢𝗪𝗡𝗟𝗢𝗔𝗗𝗘𝗗 𝗕𝗬 𝗞𝗡𝗜𝗚𝗛𝗧-𝗕𝗢𝗧"
+                        caption: "> *_Downloaded by Donix Bot MD_*"
                     }, { quoted: message });
                 }
                 

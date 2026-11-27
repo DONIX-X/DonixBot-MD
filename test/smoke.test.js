@@ -133,6 +133,7 @@ test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.github'), true);
   assert.equal(isCommandAllowed('.as'), true);
   assert.equal(isCommandAllowed('.imagine'), true);
+  assert.equal(isCommandAllowed('.gpt4'), true);
   assert.equal(isCommandAllowed('.vv'), true);
   assert.equal(isCommandAllowed('.me'), false);
   const downloadCommands = [
@@ -163,6 +164,7 @@ test('command allowlist recognizes bot commands', () => {
   }
   assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.as'), true);
   assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.imagine'), true);
+  assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.gpt4'), true);
   for (const command of downloadCommands) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
   }
@@ -283,6 +285,96 @@ test('.gemini prompts for an environment key when no key is configured', async (
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_API_KEY;
     else process.env.GOOGLE_API_KEY = previousGoogleKey;
   }
+});
+
+test('.gpt4 uses the OpenAI API and returns generated text', async () => {
+  const sentMessages = [];
+  const requests = [];
+  const message = {
+    key: { id: 'gpt4-message', remoteJid: 'gpt4-chat', participant: 'gpt4-user-success' },
+    message: { conversation: '.gpt4 explain rainbows' }
+  };
+
+  await aiCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'gpt4-chat', message, {
+    apiKey: 'test-openai-key',
+    model: 'gpt-4o-test',
+    post: async (...args) => {
+      requests.push(args);
+      return { data: { choices: [{ message: { content: 'Light bends.' } }] } };
+    }
+  });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0][0], 'https://api.openai.com/v1/chat/completions');
+  assert.deepEqual(requests[0][1].messages, [{ role: 'user', content: 'explain rainbows' }]);
+  assert.equal(requests[0][1].model, 'gpt-4o-test');
+  assert.equal(requests[0][1].max_tokens, 512);
+  assert.equal(requests[0][2].headers.Authorization, 'Bearer test-openai-key');
+  assert.equal(requests[0][2].timeout, 30000);
+  assert.equal(sentMessages.at(-1)[1].text, 'Light bends.');
+  assert.equal(sentMessages.at(-1)[2].quoted, message);
+});
+
+test('.gpt4 reports a missing OpenAI key without making a request', async () => {
+  const sentMessages = [];
+  const previousOpenAiKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+
+  try {
+    await aiCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, 'gpt4-chat', {
+      key: { id: 'gpt4-missing-key', remoteJid: 'gpt4-chat', participant: 'gpt4-user-missing-key' },
+      message: { conversation: '.gpt4 hello' }
+    }, {
+      post: async () => {
+        throw new Error('Should not call the API without a key.');
+      }
+    });
+
+    assert.match(sentMessages.at(-1)[1].text, /OPENAI_API_KEY/);
+  } finally {
+    if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousOpenAiKey;
+  }
+});
+
+test('.gpt4 limits prompt length and per-sender request rate', async () => {
+  const sentMessages = [];
+  let now = 100000;
+  let requestCount = 0;
+  const sock = { sendMessage: async (...args) => sentMessages.push(args) };
+  const options = {
+    apiKey: 'test-openai-key',
+    now: () => now,
+    post: async () => {
+      requestCount++;
+      return { data: { choices: [{ message: { content: 'Answer.' } }] } };
+    }
+  };
+
+  await aiCommand(sock, 'gpt4-chat', {
+    key: { id: 'gpt4-rate-limit', remoteJid: 'gpt4-chat', participant: 'gpt4-user-rate-limit' },
+    message: { conversation: `.gpt4 ${'a'.repeat(4001)}` }
+  }, options);
+  assert.match(sentMessages.at(-1)[1].text, /4000 characters/);
+  assert.equal(requestCount, 0);
+
+  const message = {
+    key: { id: 'gpt4-first-request', remoteJid: 'gpt4-chat', participant: 'gpt4-user-rate-limit' },
+    message: { conversation: '.gpt4 first question' }
+  };
+  await aiCommand(sock, 'gpt4-chat', message, options);
+  now += 1000;
+  await aiCommand(sock, 'gpt4-chat', {
+    key: { ...message.key, id: 'gpt4-second-request' },
+    message: { conversation: '.gpt4 another question' }
+  }, options);
+
+  assert.equal(requestCount, 1);
+  assert.match(sentMessages.at(-1)[1].text, /before using \.gpt4 again/);
 });
 
 test('.imagine generates an image from an ephemeral WhatsApp prompt', async () => {

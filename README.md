@@ -88,6 +88,10 @@ Keep your session files and pairing codes private. Never commit them or share th
 
 After the bot is connected, a user can DM `.pair` and send their own full international number (digits only) to receive a separate companion-session code in that same DM. The number must match the WhatsApp account sending the request. Enter the code in that account's **Linked devices** settings. This stores that account's login session on the bot server, and the companion session runs the bot's command handlers.
 
+### GPT-4 command
+
+Set `OPENAI_API_KEY` in the bot host's environment to enable `.gpt4 <question>`. The command uses `gpt-4o-mini` by default; set `OPENAI_MODEL` to use another supported OpenAI model. Do not commit the API key. In public mode, users can invoke this command; requests are limited to 4,000 characters and one per sender every 15 seconds. Prompts are sent to OpenAI for processing.
+
 ---
 
 ## ☕ Support Me
