@@ -26,7 +26,19 @@ setInterval(() => {
 }, 3 * 60 * 60 * 1000);
 
 const settings = require('./settings');
+const { loadBotMode, setBotMode } = require('./lib/botMode');
 const { isCommandAllowed } = require('./lib/commandAllowlist');
+const unwrapEphemeralMessage = require('./lib/unwrapEphemeralMessage');
+const { afkCommand, handleAfkMentions } = require('./commands/afk');
+const {
+    addGroupParticipant,
+    createGroup,
+    joinGroup,
+    listGroupJoinRequests,
+    sendGroupInvite,
+    updateGroupJoinRequests
+} = require('./commands/groupTools');
+const { sendMyProfilePicture, setProfileBio, setProfileName } = require('./commands/profile');
 require('./config.js');
 const { isBanned } = require('./lib/isBanned');
 const yts = require('yt-search');
@@ -43,6 +55,7 @@ const { autoreadCommand, isAutoreadEnabled, handleAutoread } = require('./comman
 // Command imports
 const tagAllCommand = require('./commands/tagall');
 const helpCommand = require('./commands/help');
+const newMenuCommand = require('./commands/newMenu');
 const banCommand = require('./commands/ban');
 const { promoteCommand } = require('./commands/promote');
 const { demoteCommand } = require('./commands/demote');
@@ -106,6 +119,7 @@ const emojimixCommand = require('./commands/emojimix');
 const { handlePromotionEvent } = require('./commands/promote');
 const { handleDemotionEvent } = require('./commands/demote');
 const viewOnceCommand = require('./commands/viewonce');
+const cacheIncomingViewOnceMessage = viewOnceCommand.cacheIncomingViewOnceMessage;
 const clearSessionCommand = require('./commands/clearsession');
 const { autoStatusCommand, handleStatusUpdate } = require('./commands/autostatus');
 const { simpCommand } = require('./commands/simp');
@@ -169,6 +183,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         const message = messages[0];
         if (!message?.message) return;
+        const messageContent = unwrapEphemeralMessage(message.message);
+
+        await cacheIncomingViewOnceMessage(sock, message);
 
         // Mark read without delaying command dispatch on the WhatsApp read receipt.
         handleAutoread(sock, message).catch(error => {
@@ -181,7 +198,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         // Handle message revocation
-        if (message.message?.protocolMessage?.type === 0) {
+        if (messageContent?.protocolMessage?.type === 0) {
             await handleMessageRevocation(sock, message);
             return;
         }
@@ -193,8 +210,8 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const senderIsOwnerOrSudo = await isOwnerOrSudo(senderId, sock, chatId);
 
         // Handle button responses
-        if (message.message?.buttonsResponseMessage) {
-            const buttonId = message.message.buttonsResponseMessage.selectedButtonId;
+        if (messageContent?.buttonsResponseMessage) {
+            const buttonId = messageContent.buttonsResponseMessage.selectedButtonId;
             const chatId = message.key.remoteJid;
 
             if (buttonId === 'channel') {
@@ -215,34 +232,29 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         const userMessage = (
-            message.message?.conversation?.trim() ||
-            message.message?.extendedTextMessage?.text?.trim() ||
-            message.message?.imageMessage?.caption?.trim() ||
-            message.message?.videoMessage?.caption?.trim() ||
-            message.message?.buttonsResponseMessage?.selectedButtonId?.trim() ||
+            messageContent?.conversation?.trim() ||
+            messageContent?.extendedTextMessage?.text?.trim() ||
+            messageContent?.imageMessage?.caption?.trim() ||
+            messageContent?.videoMessage?.caption?.trim() ||
+            messageContent?.buttonsResponseMessage?.selectedButtonId?.trim() ||
             ''
         ).toLowerCase().replace(/\.\s+/g, '.').trim();
 
         // Preserve raw message for commands like .tag that need original casing
-        const rawText = message.message?.conversation?.trim() ||
-            message.message?.extendedTextMessage?.text?.trim() ||
-            message.message?.imageMessage?.caption?.trim() ||
-            message.message?.videoMessage?.caption?.trim() ||
+        const rawText = messageContent?.conversation?.trim() ||
+            messageContent?.extendedTextMessage?.text?.trim() ||
+            messageContent?.imageMessage?.caption?.trim() ||
+            messageContent?.videoMessage?.caption?.trim() ||
             '';
+
+        await handleAfkMentions(sock, chatId, message, messageContent);
 
         // Only log command usage
         if (userMessage.startsWith('.')) {
             console.log(`📝 Command used in ${isGroup ? 'group' : 'private'}: ${userMessage}`);
         }
         // Read bot mode once; don't early-return so moderation can still run in private mode
-        let isPublic = false;
-        try {
-            const data = JSON.parse(fs.readFileSync('./data/messageCount.json'));
-            if (typeof data.isPublic === 'boolean') isPublic = data.isPublic;
-        } catch (error) {
-            console.error('Error checking access mode:', error);
-            // default isPublic=false (private/off) on error
-        }
+        const isPublic = loadBotMode(settings.commandMode === 'public');
         const isOwnerOrSudoCheck = message.key.fromMe || senderIsOwnerOrSudo;
         // Check if user is banned (skip ban check for unban command)
         if (isBanned(senderId) && !userMessage.startsWith('.unban')) {
@@ -331,11 +343,11 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         // List of admin commands
-        const adminCommands = ['.mute', '.unmute', '.ban', '.unban', '.promote', '.demote', '.kick', '.tagall', '.tagnotadmin', '.hidetag', '.antilink', '.antitag', '.setgdesc', '.setgname', '.setgpp'];
+        const adminCommands = ['.mute', '.unmute', '.ban', '.unban', '.promote', '.demote', '.kick', '.add', '.invite', '.glist', '.gapprove', '.greject', '.tagall', '.tagnotadmin', '.hidetag', '.antilink', '.antitag', '.setgdesc', '.setgname', '.setgpp'];
         const isAdminCommand = adminCommands.some(cmd => userMessage.startsWith(cmd));
 
         // List of owner commands
-        const ownerCommands = ['.mode', '.sudo', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker', '.startmsg', '.setstartmsg'];
+        const ownerCommands = ['.mode', '.sudo', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker', '.startmsg', '.setstartmsg', '.afk', '.join', '.create', '.setname', '.setbio', '.mypp'];
         const isOwnerCommand = ownerCommands.some(cmd => userMessage.startsWith(cmd));
 
         let isSenderAdmin = false;
@@ -358,7 +370,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 userMessage.startsWith('.ban') ||
                 userMessage.startsWith('.unban') ||
                 userMessage.startsWith('.promote') ||
-                userMessage.startsWith('.demote')
+                userMessage.startsWith('.demote') ||
+                userMessage.startsWith('.add') ||
+                userMessage.startsWith('.invite') ||
+                userMessage.startsWith('.glist') ||
+                userMessage.startsWith('.gapprove') ||
+                userMessage.startsWith('.greject')
             ) {
                 if (!isSenderAdmin && !message.key.fromMe) {
                     await sock.sendMessage(chatId, {
@@ -409,6 +426,39 @@ async function handleMessages(sock, messageUpdate, printLog) {
                     }
                 }
                 break;
+            case userMessage === '.afk' || userMessage.startsWith('.afk '):
+                await afkCommand(sock, chatId, message, rawText.slice(4).trim());
+                break;
+            case userMessage === '.add' || userMessage.startsWith('.add '):
+                await addGroupParticipant(sock, chatId, senderId, message, rawText.slice(4).trim());
+                break;
+            case userMessage === '.invite':
+                await sendGroupInvite(sock, chatId, senderId, message);
+                break;
+            case userMessage === '.glist':
+                await listGroupJoinRequests(sock, chatId, senderId, message);
+                break;
+            case userMessage === '.gapprove' || userMessage.startsWith('.gapprove '):
+                await updateGroupJoinRequests(sock, chatId, senderId, message, rawText.slice(9).trim(), 'approve');
+                break;
+            case userMessage === '.greject' || userMessage.startsWith('.greject '):
+                await updateGroupJoinRequests(sock, chatId, senderId, message, rawText.slice(8).trim(), 'reject');
+                break;
+            case userMessage === '.join' || userMessage.startsWith('.join '):
+                await joinGroup(sock, chatId, message, rawText.slice(5).trim());
+                break;
+            case userMessage === '.create' || userMessage.startsWith('.create '):
+                await createGroup(sock, chatId, message, rawText.slice(7).trim());
+                break;
+            case userMessage === '.setname' || userMessage.startsWith('.setname '):
+                await setProfileName(sock, chatId, message, rawText.slice(8).trim());
+                break;
+            case userMessage === '.setbio' || userMessage.startsWith('.setbio '):
+                await setProfileBio(sock, chatId, message, rawText.slice(7).trim());
+                break;
+            case userMessage === '.mypp':
+                await sendMyProfilePicture(sock, chatId, message);
+                break;
             case userMessage === '.unmute':
                 await unmuteCommand(sock, chatId, senderId);
                 break;
@@ -432,6 +482,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage === '.help' || userMessage === '.menu' || userMessage === '.bot' || userMessage === '.list':
                 await helpCommand(sock, chatId, message, 'available', true);
+                commandExecuted = true;
+                break;
+            case userMessage === '.mnew':
+                await newMenuCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage === '.sticker' || userMessage === '.s':
@@ -476,21 +530,11 @@ async function handleMessages(sock, messageUpdate, printLog) {
                     await sock.sendMessage(chatId, { text: 'Only bot owner can use this command!', ...channelInfo }, { quoted: message });
                     return;
                 }
-                // Read current data first
-                let data;
-                try {
-                    data = JSON.parse(fs.readFileSync('./data/messageCount.json'));
-                } catch (error) {
-                    console.error('Error reading access mode:', error);
-                    await sock.sendMessage(chatId, { text: 'Failed to read bot mode status', ...channelInfo });
-                    return;
-                }
-
                 const action = userMessage.split(' ')[1]?.toLowerCase();
                 // Mode is OFF/private by default. `on/public` enables public use;
                 // `off/private` restricts commands to the owner/sudo.
                 if (!action) {
-                    const currentMode = data.isPublic ? 'ON / public' : 'OFF / private';
+                    const currentMode = loadBotMode(settings.commandMode === 'public') ? 'ON / public' : 'OFF / private';
                     await sock.sendMessage(chatId, {
                         text: `Current bot mode: *${currentMode}*\n\nUsage: .mode on/off\nAlso supported: .mode public/private\n\n.mode on - Allow everyone to use the bot\n.mode off - Restrict bot commands to owner/sudo`,
                         ...channelInfo
@@ -508,10 +552,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
 
                 try {
-                    data.isPublic = normalizedAction === 'public';
-                    fs.writeFileSync('./data/messageCount.json', JSON.stringify(data, null, 2));
+                    setBotMode(normalizedAction === 'public');
                     await sock.sendMessage(chatId, {
-                        text: `Bot mode is now *${data.isPublic ? 'ON / public' : 'OFF / private'}*`,
+                        text: `Bot mode is now *${normalizedAction === 'public' ? 'ON / public' : 'OFF / private'}*`,
                         ...channelInfo
                     });
                 } catch (error) {

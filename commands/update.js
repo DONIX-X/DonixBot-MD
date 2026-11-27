@@ -4,6 +4,7 @@ const path = require('path');
 const https = require('https');
 const settings = require('../settings');
 const isOwnerOrSudo = require('../lib/isOwner');
+const { botModePath, messageCountPath } = require('../lib/botMode');
 
 function run(cmd) {
     return new Promise((resolve, reject) => {
@@ -35,6 +36,29 @@ async function updateViaGit() {
     await run(`git reset --hard ${newRev}`);
     await run('git clean -fd');
     return { oldRev, newRev, alreadyUpToDate, commits, files };
+}
+
+async function preserveMessageCountFileDuringUpdate(
+    update,
+    filePath = messageCountPath,
+    modeFilePath = botModePath
+) {
+    const fileSnapshots = [filePath, modeFilePath].map(file => ({
+        file,
+        content: fs.existsSync(file) ? fs.readFileSync(file) : null
+    }));
+    try {
+        return await update();
+    } finally {
+        for (const { file, content } of fileSnapshots) {
+            if (content === null) {
+                if (fs.existsSync(file)) fs.unlinkSync(file);
+            } else {
+                fs.mkdirSync(path.dirname(file), { recursive: true });
+                fs.writeFileSync(file, content);
+            }
+        }
+    }
 }
 
 function downloadFile(url, dest, visited = new Set()) {
@@ -210,18 +234,14 @@ async function updateCommand(sock, chatId, message, zipOverride) {
     try {
         // Minimal UX
         await sock.sendMessage(chatId, { text: '🔄 Updating the bot, please wait…' }, { quoted: message });
-        if (await hasGitRepo()) {
-            // silent
-            const { oldRev, newRev, alreadyUpToDate, commits, files } = await updateViaGit();
-            // Short message only: version info
-            const summary = alreadyUpToDate ? `✅ Already up to date: ${newRev}` : `✅ Updated to ${newRev}`;
-            console.log('[update] summary generated');
-            // silent
-            await run('npm install --no-audit --no-fund');
-        } else {
-            const { copiedFiles } = await updateViaZip(sock, chatId, message, zipOverride);
-            // silent
-        }
+        await preserveMessageCountFileDuringUpdate(async () => {
+            if (await hasGitRepo()) {
+                await updateViaGit();
+                await run('npm install --no-audit --no-fund');
+            } else {
+                await updateViaZip(sock, chatId, message, zipOverride);
+            }
+        });
         await sock.sendMessage(chatId, { text: '✅ Update done. Restarting…' }, { quoted: message });
         await restartProcess();
     } catch (err) {
@@ -231,5 +251,6 @@ async function updateCommand(sock, chatId, message, zipOverride) {
 }
 
 module.exports = updateCommand;
+module.exports.preserveMessageCountFileDuringUpdate = preserveMessageCountFileDuringUpdate;
 
 

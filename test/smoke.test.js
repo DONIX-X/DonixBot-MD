@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fsSync = require('node:fs');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -9,12 +10,64 @@ const { commandGroups, isCommandAllowed } = require('../lib/commandAllowlist');
 const config = require('../config');
 const aliveCommand = require('../commands/alive');
 const helpCommand = require('../commands/help');
+const newMenuCommand = require('../commands/newMenu');
 const { fileTypeFromBuffer } = require('../lib/fileType');
 
 test('project settings load correctly', () => {
   assert.equal(settings.botName, 'Donix Bot MD');
   assert.equal(settings.version, '1.0.7');
   assert.equal(settings.author, 'DONIX');
+});
+
+test('update preserves the existing bot mode and counters when replacing the repo data file', async () => {
+  const { preserveMessageCountFileDuringUpdate } = require('../commands/update');
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'donix-update-mode-test-'));
+  const dataFile = path.join(directory, 'messageCount.json');
+  const modeFile = path.join(directory, 'botMode.json');
+  const originalContent = JSON.stringify({
+    isPublic: false,
+    messageCount: { 'chat-id': { 'user-id': 3 } }
+  }, null, 2);
+  const originalMode = JSON.stringify({ isPublic: false }, null, 2);
+
+  try {
+    await fs.writeFile(dataFile, originalContent);
+    await fs.writeFile(modeFile, originalMode);
+    await preserveMessageCountFileDuringUpdate(async () => {
+      await fs.writeFile(dataFile, JSON.stringify({ isPublic: true, messageCount: {} }));
+      await fs.writeFile(modeFile, JSON.stringify({ isPublic: true }));
+    }, dataFile, modeFile);
+    assert.equal(await fs.readFile(dataFile, 'utf8'), originalContent);
+    assert.equal(await fs.readFile(modeFile, 'utf8'), originalMode);
+
+    await assert.rejects(preserveMessageCountFileDuringUpdate(async () => {
+      await fs.writeFile(dataFile, JSON.stringify({ isPublic: true, messageCount: {} }));
+      await fs.writeFile(modeFile, JSON.stringify({ isPublic: true }));
+      throw new Error('simulated update failure');
+    }, dataFile, modeFile), /simulated update failure/);
+    assert.equal(await fs.readFile(dataFile, 'utf8'), originalContent);
+    assert.equal(await fs.readFile(modeFile, 'utf8'), originalMode);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('bot mode uses persistent private state before legacy public state after restart', () => {
+  const { loadBotMode, setBotMode } = require('../lib/botMode');
+  const directory = fsSync.mkdtempSync(path.join(os.tmpdir(), 'donix-bot-mode-test-'));
+  const botModePath = path.join(directory, 'botMode.json');
+  const messageCountPath = path.join(directory, 'messageCount.json');
+
+  try {
+    fsSync.writeFileSync(messageCountPath, JSON.stringify({ isPublic: true, messageCount: {} }));
+    assert.equal(loadBotMode(false, { botModePath, messageCountPath }), true);
+
+    setBotMode(false, { botModePath, messageCountPath });
+    assert.equal(loadBotMode(true, { botModePath, messageCountPath }), false);
+    assert.equal(JSON.parse(fsSync.readFileSync(messageCountPath, 'utf8')).isPublic, false);
+  } finally {
+    fsSync.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('lightweight store only writes changed data and performs writes asynchronously', async () => {
@@ -64,17 +117,27 @@ test('lightweight store only writes changed data and performs writes asynchronou
 
 test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.menu'), true);
+  assert.equal(isCommandAllowed('.mnew'), true);
   assert.equal(isCommandAllowed('.ping'), true);
   assert.equal(isCommandAllowed('.sudo'), true);
   assert.equal(isCommandAllowed('.pair'), true);
   assert.equal(isCommandAllowed('.github'), true);
   assert.equal(isCommandAllowed('.as'), true);
+  assert.equal(isCommandAllowed('.vv'), true);
+  assert.equal(isCommandAllowed('.me'), false);
   const downloadCommands = [
     '.vv', '.url', '.tourl', '.play', '.mp3', '.ytmp3', '.song', '.music', '.video', '.ytmp4',
     '.spotify', '.instagram', '.insta', '.ig', '.igsc', '.igs', '.facebook', '.fb',
     '.tiktok', '.tt', '.tg', '.stickertelegram', '.tgsticker', '.telesticker'
   ];
   for (const command of downloadCommands) {
+    assert.equal(isCommandAllowed(command), true, `${command} should be enabled`);
+  }
+  const importedCommands = [
+    '.afk', '.add', '.invite', '.glist', '.gapprove', '.greject', '.join', '.create', '.ss',
+    '.setname', '.setbio', '.mypp'
+  ];
+  for (const command of importedCommands) {
     assert.equal(isCommandAllowed(command), true, `${command} should be enabled`);
   }
   assert.equal(isCommandAllowed('.chatbot'), false);
@@ -84,6 +147,7 @@ test('command allowlist recognizes bot commands', () => {
   assert.equal(isCommandAllowed('.repo'), false);
   assert.equal(isCommandAllowed('.unknown'), false);
   const menuCommands = commandGroups.flatMap(group => group.commands);
+  assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === '.mnew'), true);
   for (const command of ['.chatbot', '.git', '.sc', '.script', '.repo']) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), false);
   }
@@ -91,6 +155,216 @@ test('command allowlist recognizes bot commands', () => {
   for (const command of downloadCommands) {
     assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
   }
+  for (const command of importedCommands) {
+    assert.equal(menuCommands.some(entry => entry.split(/\s+/)[0] === command), true, `${command} should be listed in the menu`);
+  }
+});
+
+test('.mnew renders the Jarvis-style runtime header and command categories', async () => {
+  const sentMessages = [];
+  const newsletterRequests = [];
+  const message = {
+    key: { id: 'mnew-quoted-message' },
+    pushName: 'Test User'
+  };
+  await newMenuCommand({
+    newsletterMetadata: async (...args) => {
+      newsletterRequests.push(args);
+      return { id: 'updates@newsletter', name: 'Donix Updates' };
+    },
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'mnew-chat', message);
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0][0], 'mnew-chat');
+  assert.equal(sentMessages[0][2].quoted, message);
+  assert.ok(Buffer.isBuffer(sentMessages[0][1].video));
+  assert.equal(sentMessages[0][1].gifPlayback, true);
+  assert.match(sentMessages[0][1].caption, /ᴏᴡɴᴇʀ/);
+  assert.match(sentMessages[0][1].caption, /Test User/);
+  assert.match(sentMessages[0][1].caption, /GENERAL/);
+  assert.match(sentMessages[0][1].caption, /\.mnew/);
+  assert.match(sentMessages[0][1].caption, /\.as/);
+  assert.equal(newsletterRequests.length, 1);
+  assert.equal(newsletterRequests[0][0], 'invite');
+  assert.equal(sentMessages[0][1].contextInfo.forwardedNewsletterMessageInfo.newsletterJid, 'updates@newsletter');
+});
+
+test('AFK command records and clears owner status and answers mentions', async () => {
+  const { afkCommand, handleAfkMentions } = require('../commands/afk');
+  const sentMessages = [];
+  const sock = { sendMessage: async (...args) => sentMessages.push(args) };
+  const chatId = 'afk-test@g.us';
+  const senderId = 'owner-afk-test@s.whatsapp.net';
+  const commandMessage = {
+    key: { remoteJid: chatId, participant: senderId, fromMe: true }
+  };
+
+  await afkCommand(sock, chatId, commandMessage, 'at lunch');
+  await handleAfkMentions(sock, chatId, {
+    key: { remoteJid: chatId, participant: 'member@s.whatsapp.net' }
+  }, {
+    extendedTextMessage: {
+      contextInfo: { mentionedJid: [senderId] }
+    }
+  });
+
+  assert.match(sentMessages[1][1].text, /@owner-afk-test is away/);
+  assert.match(sentMessages[1][1].text, /at lunch/);
+  assert.deepEqual(sentMessages[1][1].mentions, [senderId]);
+
+  await afkCommand(sock, chatId, commandMessage, 'off');
+  await handleAfkMentions(sock, chatId, {
+    key: { remoteJid: chatId, participant: 'member@s.whatsapp.net' }
+  }, {
+    extendedTextMessage: {
+      contextInfo: { mentionedJid: [senderId] }
+    }
+  });
+  assert.equal(sentMessages.length, 3);
+  assert.match(sentMessages[2][1].text, /cleared/i);
+});
+
+test('imported group tools enforce admin access for add and invite', async () => {
+  const { addGroupParticipant, sendGroupInvite } = require('../commands/groupTools');
+  const sentMessages = [];
+  const addedParticipants = [];
+  const sock = {
+    user: { id: 'bot@s.whatsapp.net' },
+    groupMetadata: async () => ({
+      participants: [
+        { id: 'bot@s.whatsapp.net', admin: 'admin' },
+        { id: 'admin@s.whatsapp.net', admin: 'admin' }
+      ]
+    }),
+    groupParticipantsUpdate: async (_chatId, participants, action) => {
+      addedParticipants.push({ participants, action });
+      return participants.map(jid => ({ status: '200', jid }));
+    },
+    groupInviteCode: async () => 'invite-code',
+    sendMessage: async (...args) => sentMessages.push(args)
+  };
+  const message = { key: { remoteJid: 'group@g.us', participant: 'admin@s.whatsapp.net' } };
+
+  await addGroupParticipant(sock, 'group@g.us', 'admin@s.whatsapp.net', message, '15551234567');
+  await sendGroupInvite(sock, 'group@g.us', 'admin@s.whatsapp.net', message);
+
+  assert.deepEqual(addedParticipants, [{
+    participants: ['15551234567@s.whatsapp.net'],
+    action: 'add'
+  }]);
+  assert.match(sentMessages[0][1].text, /Added: @15551234567/);
+  assert.match(sentMessages[1][1].text, /https:\/\/chat\.whatsapp\.com\/invite-code/);
+
+  await addGroupParticipant(sock, 'group@g.us', 'member@s.whatsapp.net', message, '15557654321');
+  assert.match(sentMessages[2][1].text, /Only group admins/);
+  assert.equal(addedParticipants.length, 1);
+});
+
+test('imported group request tools list and process pending requests', async () => {
+  const { listGroupJoinRequests, updateGroupJoinRequests } = require('../commands/groupTools');
+  const sentMessages = [];
+  const actions = [];
+  const pendingJid = '15551234567@s.whatsapp.net';
+  const sock = {
+    user: { id: 'bot@s.whatsapp.net' },
+    groupMetadata: async () => ({
+      participants: [
+        { id: 'bot@s.whatsapp.net', admin: 'admin' },
+        { id: 'admin@s.whatsapp.net', admin: 'admin' }
+      ]
+    }),
+    groupRequestParticipantsList: async () => [{ jid: pendingJid }],
+    groupRequestParticipantsUpdate: async (_chatId, participants, action) => {
+      actions.push({ participants, action });
+      return participants.map(jid => ({ status: '200', jid }));
+    },
+    sendMessage: async (...args) => sentMessages.push(args)
+  };
+  const message = { key: { remoteJid: 'group@g.us', participant: 'admin@s.whatsapp.net' } };
+
+  await listGroupJoinRequests(sock, 'group@g.us', 'admin@s.whatsapp.net', message);
+  await updateGroupJoinRequests(sock, 'group@g.us', 'admin@s.whatsapp.net', message, 'all', 'approve');
+  await updateGroupJoinRequests(sock, 'group@g.us', 'admin@s.whatsapp.net', message, '15551234567', 'reject');
+  await updateGroupJoinRequests(sock, 'group@g.us', 'admin@s.whatsapp.net', message, 'bad,15551234567', 'approve');
+
+  assert.match(sentMessages[0][1].text, /Pending join requests/);
+  assert.deepEqual(actions, [
+    { participants: [pendingJid], action: 'approve' },
+    { participants: [pendingJid], action: 'reject' }
+  ]);
+  assert.match(sentMessages[1][1].text, /Approved 1/);
+  assert.match(sentMessages[2][1].text, /Rejected 1/);
+  assert.match(sentMessages[3][1].text, /valid phone numbers/);
+  assert.equal(actions.length, 2);
+});
+
+test('imported join and create commands use validated group inputs', async () => {
+  const { createGroup, joinGroup } = require('../commands/groupTools');
+  const sentMessages = [];
+  let created;
+  let acceptedCode;
+  const sock = {
+    groupCreate: async (subject, participants) => {
+      created = { subject, participants };
+      return { id: 'created-group@g.us' };
+    },
+    groupAcceptInvite: async code => {
+      acceptedCode = code;
+      return 'joined-group@g.us';
+    },
+    sendMessage: async (...args) => sentMessages.push(args)
+  };
+  const message = {
+    key: { remoteJid: 'owner-chat@s.whatsapp.net' },
+    message: {
+      extendedTextMessage: {
+        contextInfo: { mentionedJid: ['15551234567@s.whatsapp.net'] }
+      }
+    }
+  };
+
+  await createGroup(sock, 'owner-chat@s.whatsapp.net', message, 'Test group');
+  await joinGroup(sock, 'owner-chat@s.whatsapp.net', message, 'https://chat.whatsapp.com/abc123');
+  await joinGroup(sock, 'owner-chat@s.whatsapp.net', message, 'not a link');
+
+  assert.deepEqual(created, {
+    subject: 'Test group',
+    participants: ['15551234567@s.whatsapp.net']
+  });
+  assert.equal(acceptedCode, 'abc123');
+  assert.match(sentMessages[0][1].text, /Created “Test group”/);
+  assert.match(sentMessages[1][1].text, /Joined group/);
+  assert.match(sentMessages[2][1].text, /Usage: \.join/);
+});
+
+test('imported profile commands validate and update bot profile details', async () => {
+  const { sendMyProfilePicture, setProfileBio, setProfileName } = require('../commands/profile');
+  const sentMessages = [];
+  const updates = [];
+  const sock = {
+    user: { id: 'bot@s.whatsapp.net' },
+    updateProfileName: async name => updates.push({ name }),
+    updateProfileStatus: async status => updates.push({ status }),
+    profilePictureUrl: async (jid, type) => {
+      assert.equal(jid, 'bot@s.whatsapp.net');
+      assert.equal(type, 'image');
+      return 'https://example.com/profile.jpg';
+    },
+    sendMessage: async (...args) => sentMessages.push(args)
+  };
+  const message = { key: { remoteJid: 'owner-chat@s.whatsapp.net' } };
+
+  await setProfileName(sock, 'owner-chat@s.whatsapp.net', message, 'Bot Display');
+  await setProfileBio(sock, 'owner-chat@s.whatsapp.net', message, 'Available now');
+  await sendMyProfilePicture(sock, 'owner-chat@s.whatsapp.net', message);
+  await setProfileName(sock, 'owner-chat@s.whatsapp.net', message, 'x'.repeat(26));
+
+  assert.deepEqual(updates, [{ name: 'Bot Display' }, { status: 'Available now' }]);
+  assert.match(sentMessages[0][1].text, /profile name updated/i);
+  assert.match(sentMessages[1][1].text, /profile status updated/i);
+  assert.equal(sentMessages[2][1].image.url, 'https://example.com/profile.jpg');
+  assert.match(sentMessages[3][1].text, /up to 25 characters/);
 });
 
 test('antibadword checks configuration once and acts on matching group messages', async () => {
@@ -529,10 +803,50 @@ test('TTS command sends fetched audio without creating temp files', async () => 
   }
 });
 
+test('.ss screenshot command sends API image and rejects invalid URLs', async () => {
+  const fetchPath = require.resolve('node-fetch');
+  const originalFetch = require(fetchPath);
+  const fetchModule = require.cache[fetchPath];
+  const commandPath = require.resolve('../commands/ss');
+  const originalCommandModule = require.cache[commandPath];
+  const sentMessages = [];
+  let requestedUrl;
+
+  fetchModule.exports = async url => {
+    requestedUrl = url;
+    return {
+      ok: true,
+      buffer: async () => Buffer.from('fake-screenshot')
+    };
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const { handleSsCommand } = require(commandPath);
+    const sock = {
+      presenceSubscribe: async () => {},
+      sendPresenceUpdate: async () => {},
+      sendMessage: async (...args) => sentMessages.push(args)
+    };
+    const message = { key: { id: 'ss-message' } };
+    await handleSsCommand(sock, 'ss-chat', message, 'https://example.com');
+    await handleSsCommand(sock, 'ss-chat', message, 'example.com');
+
+    assert.match(requestedUrl, /api\.siputzx\.my\.id\/api\/tools\/ssweb/);
+    assert.ok(Buffer.isBuffer(sentMessages[0][1].image));
+    assert.equal(sentMessages[0][1].image.toString(), 'fake-screenshot');
+    assert.match(sentMessages[1][1].text, /valid URL/);
+  } finally {
+    fetchModule.exports = originalFetch;
+    if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
+    else delete require.cache[commandPath];
+  }
+});
+
 test('vv unwraps and sends quoted view-once images across wrapper versions', async () => {
   const baileysPath = require.resolve('@whiskeysockets/baileys');
-  const baileysModule = require.cache[baileysPath];
   const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
   const originalBaileysModuleExports = baileysModule.exports;
   const commandPath = require.resolve('../commands/viewonce');
   const originalCommandModule = require.cache[commandPath];
@@ -558,21 +872,41 @@ test('vv unwraps and sends quoted view-once images across wrapper versions', asy
     const viewonceCommand = require(commandPath);
     for (const wrapper of ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension']) {
       const quotedMessage = {
-        message: {
-          extendedTextMessage: {
-            contextInfo: {
-              quotedMessage: {
-                ephemeralMessage: {
-                  message: {
-                    [wrapper]: {
-                      message: { imageMessage: media }
+        message: wrapper === 'viewOnceMessage'
+          ? {
+              ephemeralMessage: {
+                message: {
+                  extendedTextMessage: {
+                    contextInfo: {
+                      quotedMessage: {
+                        ephemeralMessage: {
+                          message: {
+                            [wrapper]: {
+                              message: { imageMessage: media }
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
-          }
-        }
+          : {
+              extendedTextMessage: {
+                contextInfo: {
+                  quotedMessage: {
+                    ephemeralMessage: {
+                      message: {
+                        [wrapper]: {
+                          message: { imageMessage: media }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
       };
       const sentCountBefore = sentMessages.length;
 
@@ -600,8 +934,8 @@ test('vv unwraps and sends quoted view-once images across wrapper versions', asy
 
 test('vv retrieves quoted media from the lightweight store when the quote is incomplete', async () => {
   const baileysPath = require.resolve('@whiskeysockets/baileys');
-  const baileysModule = require.cache[baileysPath];
   const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
   const originalBaileysModuleExports = baileysModule.exports;
   const store = require('../lib/lightweight_store');
   const chatId = 'test-chat';
@@ -674,8 +1008,8 @@ test('vv retrieves quoted media from the lightweight store when the quote is inc
 
 test('vv falls back to complete stored media when the quoted media node is incomplete', async () => {
   const baileysPath = require.resolve('@whiskeysockets/baileys');
-  const baileysModule = require.cache[baileysPath];
   const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
   const originalBaileysModuleExports = baileysModule.exports;
   const store = require('../lib/lightweight_store');
   const primaryChatId = 'primary-chat';
@@ -770,10 +1104,174 @@ test('vv falls back to complete stored media when the quoted media node is incom
   }
 });
 
+test('vv uses cached media with a valid key when quoted media has a null key', async () => {
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
+  const originalBaileysModuleExports = baileysModule.exports;
+  const store = require('../lib/lightweight_store');
+  const chatId = 'quoted-chat';
+  const cachedChatId = 'cached-chat-alias';
+  const sourceId = 'null-key-source';
+  const priorCachedMessages = store.messages[cachedChatId];
+  const commandPath = require.resolve('../commands/viewonce');
+  const originalCommandModule = require.cache[commandPath];
+  const cachedMedia = {
+    mediaKey: { type: 'Buffer', data: Array.from(Buffer.from('cached-key')) },
+    mimetype: 'image/jpeg',
+    caption: 'cached view-once image'
+  };
+  const sentMessages = [];
+  let updateCalls = 0;
+  store.messages[cachedChatId] = [{
+    key: { remoteJid: cachedChatId, id: sourceId },
+    message: {
+      viewOnceMessageV2: {
+        message: { imageMessage: cachedMedia }
+      }
+    }
+  }];
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadMediaMessage: async (sourceMessage, type, _options, context) => {
+      assert.equal(sourceMessage.key.remoteJid, cachedChatId);
+      assert.equal(type, 'buffer');
+      assert.equal(typeof context.reuploadRequest, 'function');
+      assert.equal(Buffer.isBuffer(sourceMessage.message.viewOnceMessageV2.message.imageMessage.mediaKey), true);
+      return Buffer.from('recovered-image');
+    },
+    downloadContentFromMessage: async () => {
+      throw new Error('Expected cached media download path');
+    }
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const viewonceCommand = require(commandPath);
+    const message = {
+      key: { remoteJid: chatId },
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            stanzaId: sourceId,
+            remoteJid: chatId,
+            quotedMessage: {
+              viewOnceMessageV2: {
+                message: {
+                  imageMessage: { mediaKey: null, mimetype: 'image/jpeg' }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    await viewonceCommand({
+      updateMediaMessage: async sourceMessage => {
+        updateCalls += 1;
+        const media = sourceMessage.message.viewOnceMessageV2.message.imageMessage;
+        assert.equal(Buffer.isBuffer(media.mediaKey), true);
+        media.directPath = '/refreshed/path';
+        return sourceMessage;
+      },
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, chatId, message);
+
+    assert.equal(updateCalls, 1);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][1].image.toString(), 'recovered-image');
+    assert.equal(sentMessages[0][1].caption, 'cached view-once image');
+  } finally {
+    baileysModule.exports = originalBaileysModuleExports;
+    if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
+    else delete require.cache[commandPath];
+    if (priorCachedMessages) store.messages[cachedChatId] = priorCachedMessages;
+    else delete store.messages[cachedChatId];
+  }
+});
+
+test('vv serves a view-once image cached when the bot first receives it', async () => {
+  const baileysPath = require.resolve('@whiskeysockets/baileys');
+  const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
+  const originalBaileysModuleExports = baileysModule.exports;
+  const commandPath = require.resolve('../commands/viewonce');
+  const originalCommandModule = require.cache[commandPath];
+  let downloadCalls = 0;
+  const sentMessages = [];
+  baileysModule.exports = {
+    ...originalBaileysExports,
+    downloadMediaMessage: async () => {
+      throw new Error('Expected the receive-time media cache');
+    },
+    downloadContentFromMessage: async (media, type) => {
+      downloadCalls += 1;
+      assert.equal(media.directPath, '/incoming/view-once');
+      assert.equal(type, 'image');
+      return (async function* () {
+        yield Buffer.from('cached-on-arrival');
+      })();
+    }
+  };
+  delete require.cache[commandPath];
+
+  try {
+    const viewonceCommand = require(commandPath);
+    const sourceMessage = {
+      key: { remoteJid: 'cached-source-chat', id: 'cached-on-arrival-id' },
+      message: {
+        ephemeralMessage: {
+          message: {
+            viewOnceMessageV2: {
+              message: {
+                imageMessage: {
+                  directPath: '/incoming/view-once',
+                  mediaKey: Buffer.from('incoming-key'),
+                  mimetype: 'image/jpeg',
+                  caption: 'cached caption'
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    await viewonceCommand.cacheIncomingViewOnceMessage({}, sourceMessage);
+
+    const commandMessage = {
+      message: {
+        extendedTextMessage: {
+          contextInfo: {
+            stanzaId: 'cached-on-arrival-id',
+            quotedMessage: {
+              viewOnceMessageV2: {
+                message: { imageMessage: { mediaKey: null, mimetype: 'image/jpeg' } }
+              }
+            }
+          }
+        }
+      }
+    };
+    await viewonceCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, 'reply-chat', commandMessage);
+
+    assert.equal(downloadCalls, 1);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0][1].image.toString(), 'cached-on-arrival');
+    assert.equal(sentMessages[0][1].caption, 'cached caption');
+  } finally {
+    baileysModule.exports = originalBaileysModuleExports;
+    if (originalCommandModule) require.cache[commandPath] = originalCommandModule;
+    else delete require.cache[commandPath];
+  }
+});
+
 test('vv refreshes stored media that has no download URL before trying to download it', async () => {
   const baileysPath = require.resolve('@whiskeysockets/baileys');
-  const baileysModule = require.cache[baileysPath];
   const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
   const originalBaileysModuleExports = baileysModule.exports;
   const store = require('../lib/lightweight_store');
   const chatId = 'refresh-chat';
@@ -849,8 +1347,8 @@ test('.as sends a video sticker with an embedded audio track', async () => {
   const childProcess = require('node:child_process');
   const protobuf = require('protobufjs/minimal');
   const baileysPath = require.resolve('@whiskeysockets/baileys');
-  const baileysModule = require.cache[baileysPath] || require(baileysPath);
-  const originalBaileysExports = baileysModule.exports;
+  const originalBaileysExports = require(baileysPath);
+  const baileysModule = require.cache[baileysPath];
   const proto = originalBaileysExports.proto;
   const originalMessageEncode = proto.Message.encode;
   const originalStickerEncode = proto.Message.StickerMessage.encode;
@@ -887,7 +1385,8 @@ test('.as sends a video sticker with an embedded audio track', async () => {
           fileSha256: require('node:crypto').createHash('sha256').update('fake-ogg-audio').digest(),
           mediaKey: Buffer.alloc(32, 3),
           directPath: '/audio-path',
-          mimetype: content.mimetype
+          mimetype: content.mimetype,
+          seconds: 10
         }
       };
     }
@@ -942,15 +1441,18 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[0].includes('-fps_mode'));
     assert.ok(ffmpegArgs[0].includes('passthrough'));
+    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '10');
+    assert.equal(ffmpegArgs[1][ffmpegArgs[1].indexOf('-t') + 1], '10');
     assert.ok(ffmpegArgs[1].includes('0:a:0'));
     assert.ok(ffmpegArgs[1].includes('libopus'));
     assert.ok(ffmpegArgs[1].includes('64k'));
     assert.ok(ffmpegArgs[1].includes('20'));
     assert.ok(ffmpegArgs[2].includes('s16le'));
-    assert.equal(audioSeconds, 5);
+    assert.equal(audioSeconds, undefined);
     assert.equal(sentMessages.length, 1);
     const stickerImage = new (require('node-webpmux').Image)();
     await stickerImage.load(stickerUploadBuffer);
+    assert.ok(stickerUploadBuffer.length <= 500 * 1024);
     const stickerMetadata = JSON.parse(stickerImage.exif.subarray(22).toString());
     assert.equal(
       stickerMetadata['sound-sha256'],
@@ -979,6 +1481,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.equal(audioFields.length, 1);
     const embeddedAudio = proto.Message.AudioMessage.decode(audioFields[0]);
     assert.equal(embeddedAudio.mimetype, 'audio/ogg; codecs=opus');
+    assert.equal(embeddedAudio.seconds, 10);
     assert.equal(embeddedAudio.waveform.length, 64);
     assert.equal(Math.max(...embeddedAudio.waveform), 100);
   } finally {

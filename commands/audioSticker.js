@@ -11,14 +11,14 @@ const webp = require('node-webpmux');
 const ffmpegPath = require('ffmpeg-static') || 'ffmpeg';
 const settings = require('../settings');
 
-const MAX_STICKER_BYTES = 900 * 1024;
+const MAX_STICKER_BYTES = 500 * 1024;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
 const stickerProfiles = [
-    { duration: 5, fps: 15, quality: 60 },
-    { duration: 4, fps: 10, quality: 35 },
-    { duration: 3, fps: 8, quality: 20 },
-    { duration: 2, fps: 6, quality: 15 }
+    { duration: 10, fps: 12, quality: 45 },
+    { duration: 10, fps: 10, quality: 30 },
+    { duration: 9, fps: 8, quality: 20 },
+    { duration: 8, fps: 6, quality: 15 }
 ];
 
 function encodeVarint(value) {
@@ -249,8 +249,8 @@ async function addAudioStickerMetadata(stickerBuffer, audioHash) {
     image.exif = exif;
 
     const stickerWithMetadata = await image.save(null);
-    if (stickerWithMetadata.length > 1024 * 1024) {
-        throw new Error('The sticker exceeds WhatsApp’s 1 MB size limit.');
+    if (stickerWithMetadata.length > MAX_STICKER_BYTES) {
+        throw new Error('The animated sticker exceeds WhatsApp’s 500 KB size limit.');
     }
     return stickerWithMetadata;
 }
@@ -313,8 +313,7 @@ async function audioStickerCommand(sock, chatId, message) {
                 {
                     audio: audioBuffer,
                     mimetype: 'audio/ogg; codecs=opus',
-                    ptt: false,
-                    seconds: profile.duration
+                    ptt: false
                 },
                 { upload: sock.waUploadToServer }
             )
@@ -339,7 +338,9 @@ async function audioStickerCommand(sock, chatId, message) {
         sticker.isLottie = false;
         audio.mimetype = 'audio/ogg; codecs=opus';
         audio.ptt = false;
-        audio.seconds = audio.seconds || profile.duration;
+        if (!Number.isFinite(audio.seconds) || audio.seconds <= 0) {
+            throw new Error('WhatsApp media upload did not return the audio duration.');
+        }
 
         sticker.audioMessage = audio;
         stage = 'sending the sticker';

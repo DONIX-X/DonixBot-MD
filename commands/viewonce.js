@@ -1,5 +1,6 @@
 const { downloadContentFromMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const store = require('../lib/lightweight_store');
+const unwrapEphemeralMessage = require('../lib/unwrapEphemeralMessage');
 
 const viewOnceLogger = {
     info: (details, message) => console.info(`[vv] ${message}`, details)
@@ -10,6 +11,10 @@ const viewOnceWrappers = [
     'viewOnceMessageV2',
     'viewOnceMessageV2Extension'
 ];
+const viewOnceMediaCache = new Map();
+const VIEW_ONCE_CACHE_TTL_MS = 15 * 60 * 1000;
+const VIEW_ONCE_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const VIEW_ONCE_CACHE_MAX_ITEMS = 50;
 
 function findViewOnceMedia(quotedMessage) {
     let current = quotedMessage;
@@ -47,6 +52,96 @@ function findViewOnceMedia(quotedMessage) {
     return null;
 }
 
+function hasMediaKey(media) {
+    return Buffer.isBuffer(media?.mediaKey) || media?.mediaKey instanceof Uint8Array;
+}
+
+function restoreSerializedMediaKey(media) {
+    const mediaKey = media?.mediaKey;
+    if (mediaKey?.type === 'Buffer' && Array.isArray(mediaKey.data)) {
+        media.mediaKey = Buffer.from(mediaKey.data);
+    }
+}
+
+function getStoredMediaCandidate(storedMessage) {
+    const mediaInfo = findViewOnceMedia(storedMessage?.message);
+    if (!mediaInfo) return null;
+    restoreSerializedMediaKey(mediaInfo.media);
+    return { ...mediaInfo, sourceMessage: storedMessage, source: 'store' };
+}
+
+async function downloadMediaBuffer(media, type) {
+    const stream = await downloadContentFromMessage(media, type);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const buffer = Buffer.concat(chunks);
+    if (!buffer.length) throw new Error('Downloaded view-once media is empty');
+    return buffer;
+}
+
+function pruneViewOnceCache() {
+    const now = Date.now();
+    for (const [id, entry] of viewOnceMediaCache) {
+        if (entry.expiresAt <= now) viewOnceMediaCache.delete(id);
+    }
+
+    const getCachedBytes = () => [...viewOnceMediaCache.values()]
+        .reduce((total, entry) => total + entry.buffer.length, 0);
+    while (
+        viewOnceMediaCache.size > VIEW_ONCE_CACHE_MAX_ITEMS ||
+        getCachedBytes() > VIEW_ONCE_CACHE_MAX_BYTES
+    ) {
+        viewOnceMediaCache.delete(viewOnceMediaCache.keys().next().value);
+    }
+}
+
+async function cacheIncomingViewOnceMessage(sock, message) {
+    const id = message?.key?.id;
+    let mediaInfo = findViewOnceMedia(message?.message);
+    if (!id || !mediaInfo) return;
+
+    try {
+        let buffer;
+        try {
+            buffer = await downloadMediaBuffer(mediaInfo.media, mediaInfo.type);
+        } catch (downloadError) {
+            if (!hasMediaKey(mediaInfo.media) || typeof sock.updateMediaMessage !== 'function') {
+                throw downloadError;
+            }
+
+            const refreshedMessage = await sock.updateMediaMessage(message);
+            const refreshedMedia = findViewOnceMedia(refreshedMessage?.message);
+            if (!refreshedMedia) throw downloadError;
+            mediaInfo = refreshedMedia;
+            buffer = await downloadMediaBuffer(mediaInfo.media, mediaInfo.type);
+        }
+
+        if (buffer.length > VIEW_ONCE_CACHE_MAX_BYTES) {
+            console.warn(`Skipping view-once cache for ${id}: media exceeds cache size limit`);
+            return;
+        }
+
+        pruneViewOnceCache();
+        viewOnceMediaCache.delete(id);
+        viewOnceMediaCache.set(id, {
+            buffer,
+            type: mediaInfo.type,
+            mimetype: mediaInfo.media.mimetype,
+            caption: mediaInfo.media.caption || '',
+            expiresAt: Date.now() + VIEW_ONCE_CACHE_TTL_MS
+        });
+        pruneViewOnceCache();
+    } catch (error) {
+        console.error(`Could not cache received view-once media (${id}):`, error);
+    }
+}
+
+function getCachedViewOnceMedia(id) {
+    if (!id) return null;
+    pruneViewOnceCache();
+    return viewOnceMediaCache.get(id) || null;
+}
+
 function getStoredViewOnceCandidates(contextInfo, chatId, message) {
     if (!contextInfo?.stanzaId) return [];
 
@@ -57,25 +152,42 @@ function getStoredViewOnceCandidates(contextInfo, chatId, message) {
         chatId
     ].filter((jid, index, list) => jid && list.indexOf(jid) === index);
 
-    return Promise.all(chatIds.map(async jid => {
+    const storedCandidates = [];
+    const seenMessages = new Set();
+    const candidateChatIds = [...chatIds, ...Object.keys(store.messages || {})];
+
+    return Promise.all(candidateChatIds.map(async jid => {
+        if (seenMessages.has(jid)) return null;
+        seenMessages.add(jid);
         const storedMessage = await store.loadMessage(jid, contextInfo.stanzaId);
-        const mediaInfo = findViewOnceMedia(storedMessage?.message);
-        return mediaInfo ? { ...mediaInfo, sourceMessage: storedMessage } : null;
-    })).then(results => results.filter(Boolean));
+        return getStoredMediaCandidate(storedMessage);
+    })).then(results => {
+        for (const candidate of results) {
+            if (candidate) storedCandidates.push(candidate);
+        }
+        return storedCandidates;
+    });
 }
 
 async function downloadViewOnceMedia(candidates, sock) {
     let lastError = null;
     const orderedCandidates = [...candidates].sort((a, b) => {
-        const aComplete = Boolean(a.media.mediaKey && (a.media.directPath || a.media.url));
-        const bComplete = Boolean(b.media.mediaKey && (b.media.directPath || b.media.url));
-        return Number(bComplete) - Number(aComplete);
+        const score = candidate =>
+            (hasMediaKey(candidate.media) ? 2 : 0) +
+            (candidate.media.directPath || candidate.media.url ? 1 : 0) +
+            (candidate.source === 'store' ? 1 : 0);
+        return score(b) - score(a);
     });
 
     for (const candidate of orderedCandidates) {
         if (candidate.sourceMessage) {
             try {
-                if (!candidate.media.url && !candidate.media.directPath && typeof sock.updateMediaMessage === 'function') {
+                if (
+                    !candidate.media.url &&
+                    !candidate.media.directPath &&
+                    hasMediaKey(candidate.media) &&
+                    typeof sock.updateMediaMessage === 'function'
+                ) {
                     candidate.sourceMessage = await sock.updateMediaMessage(candidate.sourceMessage);
                     const refreshedMedia = findViewOnceMedia(candidate.sourceMessage?.message);
                     if (refreshedMedia) {
@@ -84,7 +196,7 @@ async function downloadViewOnceMedia(candidates, sock) {
                     }
                 }
 
-                const context = typeof sock.updateMediaMessage === 'function'
+                const context = hasMediaKey(candidate.media) && typeof sock.updateMediaMessage === 'function'
                     ? {
                         logger: viewOnceLogger,
                         reuploadRequest: sourceMessage => sock.updateMediaMessage(sourceMessage)
@@ -100,11 +212,7 @@ async function downloadViewOnceMedia(candidates, sock) {
         }
 
         try {
-            const stream = await downloadContentFromMessage(candidate.media, candidate.type);
-            const chunks = [];
-            for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-            const buffer = Buffer.concat(chunks);
-            if (!buffer.length) throw new Error('Downloaded view-once media is empty');
+            const buffer = await downloadMediaBuffer(candidate.media, candidate.type);
             return { buffer, mediaInfo: candidate };
         } catch (error) {
             lastError = error;
@@ -116,14 +224,28 @@ async function downloadViewOnceMedia(candidates, sock) {
 }
 
 async function viewonceCommand(sock, chatId, message) {
-    const contextInfo = message.message?.extendedTextMessage?.contextInfo
-        || message.message?.imageMessage?.contextInfo
-        || message.message?.videoMessage?.contextInfo;
+    const messageContent = unwrapEphemeralMessage(message.message);
+    const contextInfo = messageContent?.extendedTextMessage?.contextInfo
+        || messageContent?.imageMessage?.contextInfo
+        || messageContent?.videoMessage?.contextInfo;
+    const cachedMedia = getCachedViewOnceMedia(contextInfo?.stanzaId);
+    if (cachedMedia) {
+        const payload = {
+            [cachedMedia.type]: cachedMedia.buffer,
+            mimetype: cachedMedia.mimetype || (cachedMedia.type === 'image' ? 'image/jpeg' : 'video/mp4'),
+            caption: cachedMedia.caption
+        };
+        await sock.sendMessage(chatId, payload, { quoted: message });
+        viewOnceMediaCache.delete(contextInfo.stanzaId);
+        return;
+    }
+
     const candidates = [];
     const quotedMedia = findViewOnceMedia(contextInfo?.quotedMessage);
     if (quotedMedia) {
         candidates.push({
             ...quotedMedia,
+            source: 'quote',
             sourceMessage: contextInfo?.stanzaId ? {
                 key: {
                     remoteJid: contextInfo.remoteJid || chatId,
@@ -159,4 +281,5 @@ async function viewonceCommand(sock, chatId, message) {
     }
 }
 
-module.exports = viewonceCommand; 
+module.exports = viewonceCommand;
+module.exports.cacheIncomingViewOnceMessage = cacheIncomingViewOnceMessage;
