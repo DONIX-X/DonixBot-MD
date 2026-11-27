@@ -19,18 +19,18 @@ const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProt
 function getStickerProfiles(duration) {
     const fullDurationProfiles = duration > 30
         ? [
-            { fps: 2, quality: 3, size: 256 },
-            { fps: 1, quality: 1, size: 128 }
+            { fps: 2, quality: 3, size: 512 },
+            { fps: 1, quality: 1, size: 512 }
         ]
         : duration > 15
             ? [
-                { fps: 3, quality: 5, size: 384 },
-                { fps: 1, quality: 1, size: 128 }
+                { fps: 3, quality: 5, size: 512 },
+                { fps: 1, quality: 1, size: 512 }
             ]
             : [
                 { fps: 4, quality: 8, size: 512 },
-                { fps: 2, quality: 3, size: 384 },
-                { fps: 1, quality: 1, size: 128 }
+                { fps: 2, quality: 3, size: 512 },
+                { fps: 1, quality: 1, size: 512 }
             ];
     const fallbackDurations = duration > 45
         ? [45, 30, 15, 10]
@@ -48,7 +48,7 @@ function getStickerProfiles(duration) {
                 duration: fallbackDuration,
                 fps: 1,
                 quality: 1,
-                size: 128
+                size: 512
             }))
     ];
 }
@@ -336,13 +336,16 @@ async function audioStickerCommand(sock, chatId, message) {
             targetDuration
         );
         stage = 'extracting audio';
-        await createAudioTrack(videoPath, audioPath, profile.duration);
+        await createAudioTrack(videoPath, audioPath, MAX_STICKER_DURATION_SECONDS);
         const audioBuffer = fs.readFileSync(audioPath);
         if (!audioBuffer.length) {
             throw new Error('FFmpeg produced an empty audio track.');
         }
         const audioHash = crypto.createHash('sha256').update(audioBuffer).digest('base64');
         const waveform = await createAudioWaveform(audioPath, waveformPath);
+        if (!waveform.some(amplitude => amplitude > 0)) {
+            throw new Error('The extracted audio track is silent.');
+        }
         stage = 'adding sticker metadata';
         const stickerBuffer = await addAudioStickerMetadata(fs.readFileSync(stickerPath), audioHash);
 

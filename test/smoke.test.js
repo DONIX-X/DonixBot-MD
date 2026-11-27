@@ -1616,7 +1616,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
           mediaKey: Buffer.alloc(32, 3),
           directPath: '/audio-path',
           mimetype: content.mimetype,
-          seconds: 60
+          seconds: 14
         }
       };
     }
@@ -1655,7 +1655,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
         extendedTextMessage: {
           contextInfo: {
             stanzaId: 'video-message',
-            quotedMessage: { videoMessage: { mimetype: 'video/mp4', seconds: 60 } }
+            quotedMessage: { videoMessage: { mimetype: 'video/mp4', seconds: 14 } }
           }
         }
       }
@@ -1674,12 +1674,12 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[0].includes('-fps_mode'));
     assert.ok(ffmpegArgs[0].includes('passthrough'));
-    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '60');
+    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '14');
     for (const stickerArgs of ffmpegArgs.slice(0, 2)) {
-      assert.equal(stickerArgs[stickerArgs.indexOf('-t') + 1], '60');
+      assert.equal(stickerArgs[stickerArgs.indexOf('-t') + 1], '14');
     }
-    assert.ok(ffmpegArgs[0].some(argument => argument.includes('fps=2,scale=256:256')));
-    assert.ok(ffmpegArgs[1].some(argument => argument.includes('fps=1,scale=128:128')));
+    assert.ok(ffmpegArgs[0].some(argument => argument.includes('fps=4,scale=512:512')));
+    assert.ok(ffmpegArgs[1].some(argument => argument.includes('fps=2,scale=512:512')));
     assert.ok(ffmpegArgs[1].some(argument => argument.includes('pad=512:512')));
     assert.equal(ffmpegArgs[2][ffmpegArgs[2].indexOf('-t') + 1], '60');
     assert.ok(ffmpegArgs[2].includes('0:a:0'));
@@ -1720,7 +1720,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.equal(audioFields.length, 1);
     const embeddedAudio = proto.Message.AudioMessage.decode(audioFields[0]);
     assert.equal(embeddedAudio.mimetype, 'audio/ogg; codecs=opus');
-    assert.equal(embeddedAudio.seconds, 60);
+    assert.equal(embeddedAudio.seconds, 14);
     assert.equal(embeddedAudio.waveform.length, 64);
     assert.equal(Math.max(...embeddedAudio.waveform), 100);
   } finally {
