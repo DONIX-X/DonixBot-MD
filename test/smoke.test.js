@@ -1616,7 +1616,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
           mediaKey: Buffer.alloc(32, 3),
           directPath: '/audio-path',
           mimetype: content.mimetype,
-          seconds: 14
+          seconds: 60
         }
       };
     }
@@ -1629,7 +1629,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       let output;
       if (args.includes('libwebp')) {
         const stickerProfile = ffmpegArgs.filter(ffmpegArgsForRun => ffmpegArgsForRun.includes('libwebp')).length - 1;
-        output = stickerProfile < 1
+        output = stickerProfile < 8
           ? Buffer.alloc(500 * 1024 + 1)
           : fs.readFileSync(path.join(__dirname, '../assets/stickintro.webp'));
       } else if (args.includes('s16le')) {
@@ -1655,7 +1655,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
         extendedTextMessage: {
           contextInfo: {
             stanzaId: 'video-message',
-            quotedMessage: { videoMessage: { mimetype: 'video/mp4', seconds: 14 } }
+            quotedMessage: { videoMessage: { mimetype: 'video/mp4' } }
           }
         }
       }
@@ -1670,23 +1670,23 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       }
     }, 'audio-chat', message);
 
-    assert.equal(ffmpegArgs.length, 4, sentMessages.map(entry => entry[1].text).join(' | '));
+    assert.equal(ffmpegArgs.length, 11, sentMessages.map(entry => entry[1].text).join(' | '));
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[0].includes('-fps_mode'));
     assert.ok(ffmpegArgs[0].includes('passthrough'));
     assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '60');
-    for (const stickerArgs of ffmpegArgs.slice(0, 2)) {
+    for (const stickerArgs of ffmpegArgs.slice(0, 9)) {
       assert.equal(stickerArgs[stickerArgs.indexOf('-t') + 1], '60');
     }
-    assert.ok(ffmpegArgs[0].some(argument => argument.includes('fps=8,scale=512:512')));
-    assert.ok(ffmpegArgs[1].some(argument => argument.includes('fps=4,scale=512:512')));
-    assert.ok(ffmpegArgs[1].some(argument => argument.includes('pad=512:512')));
-    assert.equal(ffmpegArgs[2][ffmpegArgs[2].indexOf('-t') + 1], '60');
-    assert.ok(ffmpegArgs[2].includes('0:a:0'));
-    assert.ok(ffmpegArgs[2].includes('libopus'));
-    assert.ok(ffmpegArgs[2].includes('64k'));
-    assert.ok(ffmpegArgs[2].includes('20'));
-    assert.ok(ffmpegArgs[3].includes('s16le'));
+    assert.ok(ffmpegArgs[4].some(argument => argument.includes('fps=3,scale=384:384')));
+    assert.ok(ffmpegArgs[8].some(argument => argument.includes('fps=1,scale=128:128')));
+    assert.ok(ffmpegArgs[8].some(argument => argument.includes('pad=512:512')));
+    assert.equal(ffmpegArgs[9][ffmpegArgs[9].indexOf('-t') + 1], '60');
+    assert.ok(ffmpegArgs[9].includes('0:a:0'));
+    assert.ok(ffmpegArgs[9].includes('libopus'));
+    assert.ok(ffmpegArgs[9].includes('64k'));
+    assert.ok(ffmpegArgs[9].includes('20'));
+    assert.ok(ffmpegArgs[10].includes('s16le'));
     assert.equal(audioSeconds, undefined);
     assert.equal(sentMessages.length, 1);
     const stickerImage = new (require('node-webpmux').Image)();
@@ -1720,7 +1720,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.equal(audioFields.length, 1);
     const embeddedAudio = proto.Message.AudioMessage.decode(audioFields[0]);
     assert.equal(embeddedAudio.mimetype, 'audio/ogg; codecs=opus');
-    assert.equal(embeddedAudio.seconds, 14);
+    assert.equal(embeddedAudio.seconds, 60);
     assert.equal(embeddedAudio.waveform.length, 64);
     assert.equal(Math.max(...embeddedAudio.waveform), 100);
   } finally {

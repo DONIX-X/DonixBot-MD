@@ -12,50 +12,25 @@ const ffmpegPath = require('ffmpeg-static') || 'ffmpeg';
 const settings = require('../settings');
 
 const MAX_STICKER_BYTES = 500 * 1024;
-const MAX_STICKER_DURATION_SECONDS = 60;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
-
-function getStickerProfiles(duration) {
-    const fullDurationProfiles = duration > 30
-        ? [
-            { fps: 2, quality: 3, size: 512 },
-            { fps: 1, quality: 1, size: 512 }
-        ]
-        : duration > 15
-            ? [
-                { fps: 3, quality: 5, size: 512 },
-                { fps: 1, quality: 1, size: 512 }
-            ]
-            : [
-                { fps: 8, quality: 30, size: 512 },
-                { fps: 4, quality: 8, size: 512 },
-                { fps: 2, quality: 3, size: 512 },
-                { fps: 1, quality: 1, size: 512 }
-            ];
-    const fallbackDurations = duration > 45
-        ? [45, 30, 15, 10]
-        : duration > 30
-            ? [30, 15, 10]
-            : duration > 15
-                ? [15, 10]
-                : [10, 8];
-
-    return [
-        ...fullDurationProfiles.map(profile => ({
-            ...profile,
-            duration: MAX_STICKER_DURATION_SECONDS
-        })),
-        ...fallbackDurations
-            .filter(fallbackDuration => fallbackDuration < duration)
-            .map(fallbackDuration => ({
-                duration: fallbackDuration,
-                fps: 1,
-                quality: 1,
-                size: 512
-            }))
-    ];
-}
+const stickerProfiles = [
+    { duration: 60, fps: 8, quality: 30, size: 512 },
+    { duration: 60, fps: 6, quality: 18, size: 512 },
+    { duration: 60, fps: 4, quality: 8, size: 512 },
+    { duration: 60, fps: 3, quality: 5, size: 512 },
+    { duration: 60, fps: 3, quality: 8, size: 384 },
+    { duration: 60, fps: 2, quality: 5, size: 384 },
+    { duration: 60, fps: 2, quality: 3, size: 256 },
+    { duration: 60, fps: 1, quality: 1, size: 256 },
+    { duration: 60, fps: 1, quality: 1, size: 128 },
+    { duration: 45, fps: 6, quality: 15 },
+    { duration: 30, fps: 6, quality: 15 },
+    { duration: 20, fps: 6, quality: 15 },
+    { duration: 15, fps: 6, quality: 15 },
+    { duration: 10, fps: 6, quality: 15 },
+    { duration: 8, fps: 6, quality: 15 }
+];
 
 function encodeVarint(value) {
     const bytes = [];
@@ -182,8 +157,7 @@ function runFfmpeg(args) {
     });
 }
 
-async function createAnimatedSticker(videoPath, tempDir, targetDuration) {
-    const stickerProfiles = getStickerProfiles(targetDuration);
+async function createAnimatedSticker(videoPath, tempDir) {
     for (let index = 0; index < stickerProfiles.length; index += 1) {
         const profile = stickerProfiles[index];
         const size = profile.size || 512;
@@ -330,26 +304,15 @@ async function audioStickerCommand(sock, chatId, message) {
         fs.writeFileSync(videoPath, videoBuffer);
 
         stage = 'converting the video';
-        const sourceDuration = Number(quotedVideo.videoMessage.seconds);
-        const targetDuration = Number.isFinite(sourceDuration) && sourceDuration > 0
-            ? Math.min(MAX_STICKER_DURATION_SECONDS, Math.ceil(sourceDuration))
-            : MAX_STICKER_DURATION_SECONDS;
-        const { outputPath: stickerPath, profile } = await createAnimatedSticker(
-            videoPath,
-            tempDir,
-            targetDuration
-        );
+        const { outputPath: stickerPath, profile } = await createAnimatedSticker(videoPath, tempDir);
         stage = 'extracting audio';
-        await createAudioTrack(videoPath, audioPath, MAX_STICKER_DURATION_SECONDS);
+        await createAudioTrack(videoPath, audioPath, profile.duration);
         const audioBuffer = fs.readFileSync(audioPath);
         if (!audioBuffer.length) {
             throw new Error('FFmpeg produced an empty audio track.');
         }
         const audioHash = crypto.createHash('sha256').update(audioBuffer).digest('base64');
         const waveform = await createAudioWaveform(audioPath, waveformPath);
-        if (!waveform.some(amplitude => amplitude > 0)) {
-            throw new Error('The extracted audio track is silent.');
-        }
         stage = 'adding sticker metadata';
         const stickerBuffer = await addAudioStickerMetadata(fs.readFileSync(stickerPath), audioHash);
 
