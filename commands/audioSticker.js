@@ -12,25 +12,46 @@ const ffmpegPath = require('ffmpeg-static') || 'ffmpeg';
 const settings = require('../settings');
 
 const MAX_STICKER_BYTES = 500 * 1024;
+const MAX_STICKER_DURATION_SECONDS = 60;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
-const stickerProfiles = [
-    { duration: 60, fps: 8, quality: 30, size: 512 },
-    { duration: 60, fps: 6, quality: 18, size: 512 },
-    { duration: 60, fps: 4, quality: 8, size: 512 },
-    { duration: 60, fps: 3, quality: 5, size: 512 },
-    { duration: 60, fps: 3, quality: 8, size: 384 },
-    { duration: 60, fps: 2, quality: 5, size: 384 },
-    { duration: 60, fps: 2, quality: 3, size: 256 },
-    { duration: 60, fps: 1, quality: 1, size: 256 },
-    { duration: 60, fps: 1, quality: 1, size: 128 },
-    { duration: 45, fps: 6, quality: 15 },
-    { duration: 30, fps: 6, quality: 15 },
-    { duration: 20, fps: 6, quality: 15 },
-    { duration: 15, fps: 6, quality: 15 },
-    { duration: 10, fps: 6, quality: 15 },
-    { duration: 8, fps: 6, quality: 15 }
-];
+
+function getStickerProfiles(duration) {
+    const fullDurationProfiles = duration > 30
+        ? [
+            { fps: 2, quality: 3, size: 256 },
+            { fps: 1, quality: 1, size: 128 }
+        ]
+        : duration > 15
+            ? [
+                { fps: 3, quality: 5, size: 384 },
+                { fps: 1, quality: 1, size: 128 }
+            ]
+            : [
+                { fps: 4, quality: 8, size: 512 },
+                { fps: 2, quality: 3, size: 384 },
+                { fps: 1, quality: 1, size: 128 }
+            ];
+    const fallbackDurations = duration > 45
+        ? [45, 30, 15, 10]
+        : duration > 30
+            ? [30, 15, 10]
+            : duration > 15
+                ? [15, 10]
+                : [10, 8];
+
+    return [
+        ...fullDurationProfiles.map(profile => ({ ...profile, duration })),
+        ...fallbackDurations
+            .filter(fallbackDuration => fallbackDuration < duration)
+            .map(fallbackDuration => ({
+                duration: fallbackDuration,
+                fps: 1,
+                quality: 1,
+                size: 128
+            }))
+    ];
+}
 
 function encodeVarint(value) {
     const bytes = [];
@@ -157,7 +178,8 @@ function runFfmpeg(args) {
     });
 }
 
-async function createAnimatedSticker(videoPath, tempDir) {
+async function createAnimatedSticker(videoPath, tempDir, targetDuration) {
+    const stickerProfiles = getStickerProfiles(targetDuration);
     for (let index = 0; index < stickerProfiles.length; index += 1) {
         const profile = stickerProfiles[index];
         const size = profile.size || 512;
@@ -304,7 +326,15 @@ async function audioStickerCommand(sock, chatId, message) {
         fs.writeFileSync(videoPath, videoBuffer);
 
         stage = 'converting the video';
-        const { outputPath: stickerPath, profile } = await createAnimatedSticker(videoPath, tempDir);
+        const sourceDuration = Number(quotedVideo.videoMessage.seconds);
+        const targetDuration = Number.isFinite(sourceDuration) && sourceDuration > 0
+            ? Math.min(MAX_STICKER_DURATION_SECONDS, Math.ceil(sourceDuration))
+            : MAX_STICKER_DURATION_SECONDS;
+        const { outputPath: stickerPath, profile } = await createAnimatedSticker(
+            videoPath,
+            tempDir,
+            targetDuration
+        );
         stage = 'extracting audio';
         await createAudioTrack(videoPath, audioPath, profile.duration);
         const audioBuffer = fs.readFileSync(audioPath);
