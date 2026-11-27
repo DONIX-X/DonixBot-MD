@@ -15,9 +15,20 @@ const MAX_STICKER_BYTES = 500 * 1024;
 const audioStickerPatchKey = Symbol.for('donixbot.audioStickerProtoPatch');
 const audioStickerMessagePatchKey = Symbol.for('donixbot.audioStickerMessageProtoPatch');
 const stickerProfiles = [
-    { duration: 10, fps: 12, quality: 45 },
-    { duration: 10, fps: 10, quality: 30 },
-    { duration: 9, fps: 8, quality: 20 },
+    { duration: 60, fps: 8, quality: 30, size: 512 },
+    { duration: 60, fps: 6, quality: 18, size: 512 },
+    { duration: 60, fps: 4, quality: 8, size: 512 },
+    { duration: 60, fps: 3, quality: 5, size: 512 },
+    { duration: 60, fps: 3, quality: 8, size: 384 },
+    { duration: 60, fps: 2, quality: 5, size: 384 },
+    { duration: 60, fps: 2, quality: 3, size: 256 },
+    { duration: 60, fps: 1, quality: 1, size: 256 },
+    { duration: 60, fps: 1, quality: 1, size: 128 },
+    { duration: 45, fps: 6, quality: 15 },
+    { duration: 30, fps: 6, quality: 15 },
+    { duration: 20, fps: 6, quality: 15 },
+    { duration: 15, fps: 6, quality: 15 },
+    { duration: 10, fps: 6, quality: 15 },
     { duration: 8, fps: 6, quality: 15 }
 ];
 
@@ -149,11 +160,12 @@ function runFfmpeg(args) {
 async function createAnimatedSticker(videoPath, tempDir) {
     for (let index = 0; index < stickerProfiles.length; index += 1) {
         const profile = stickerProfiles[index];
+        const size = profile.size || 512;
         const outputPath = path.join(tempDir, `sticker-${index}.webp`);
         await runFfmpeg([
             '-i', videoPath,
             '-t', String(profile.duration),
-            '-vf', `fps=${profile.fps},scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba`,
+            '-vf', `fps=${profile.fps},scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba`,
             '-vcodec', 'libwebp',
             '-lossless', '0',
             '-compression_level', '6',
@@ -165,7 +177,11 @@ async function createAnimatedSticker(videoPath, tempDir) {
             outputPath
         ]);
 
-        if (fs.statSync(outputPath).size <= MAX_STICKER_BYTES) {
+        const outputBytes = fs.statSync(outputPath).size;
+        if (outputBytes <= MAX_STICKER_BYTES) {
+            console.info(
+                `[.as] Using sticker profile (cap ${profile.duration}s, ${profile.fps} fps, ${size}px source, ${outputBytes} bytes).`
+            );
             return { outputPath, profile };
         }
     }
@@ -341,6 +357,7 @@ async function audioStickerCommand(sock, chatId, message) {
         if (!Number.isFinite(audio.seconds) || audio.seconds <= 0) {
             throw new Error('WhatsApp media upload did not return the audio duration.');
         }
+        console.info(`[.as] Audio track duration reported by WhatsApp: ${audio.seconds}s.`);
 
         sticker.audioMessage = audio;
         stage = 'sending the sticker';

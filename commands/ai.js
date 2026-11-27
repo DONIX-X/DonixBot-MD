@@ -1,7 +1,8 @@
 const axios = require('axios');
 const unwrapEphemeralMessage = require('../lib/unwrapEphemeralMessage');
 
-const POLLINATIONS_TEXT_API = 'https://text.pollinations.ai/';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function getMessageText(message) {
     const content = unwrapEphemeralMessage(message.message || {});
@@ -13,51 +14,75 @@ function getMessageText(message) {
         || '';
 }
 
-function extractText(responseData) {
-    if (typeof responseData === 'string') {
-        const text = responseData.trim();
-        if (text) return text;
-    } else if (responseData && typeof responseData === 'object') {
-        const text = responseData.choices?.[0]?.message?.content
-            || responseData.answer
-            || responseData.text;
-        if (typeof text === 'string' && text.trim()) return text.trim();
-        if (responseData.error) {
-            throw new Error(typeof responseData.error === 'string'
-                ? responseData.error
-                : JSON.stringify(responseData.error));
-        }
+function extractGeminiText(responseData) {
+    const blockReason = responseData?.promptFeedback?.blockReason;
+    if (blockReason) {
+        const error = new Error(`Gemini blocked the prompt: ${blockReason}`);
+        error.code = 'PROMPT_BLOCKED';
+        throw error;
     }
 
-    throw new Error('AI provider returned an empty response.');
+    const text = (responseData?.candidates || [])
+        .flatMap(candidate => candidate.content?.parts || [])
+        .map(part => part.text)
+        .filter(part => typeof part === 'string' && part.trim())
+        .join('\n')
+        .trim();
+    if (text) return text;
+
+    const apiMessage = responseData?.error?.message;
+    throw new Error(apiMessage || 'Gemini returned no text content.');
 }
 
-async function requestPollinations(query, options = {}) {
+async function requestGemini(query, options = {}) {
+    const apiKey = options.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+        const error = new Error('Gemini API key is missing.');
+        error.code = 'MISSING_GEMINI_API_KEY';
+        throw error;
+    }
+
+    const model = options.model || process.env.GEMINI_MODEL || GEMINI_MODEL;
+    if (!/^[a-zA-Z0-9._-]+$/.test(model)) {
+        throw new Error('Invalid Gemini model name.');
+    }
+
     const post = options.post || axios.post;
     const response = await post(
-        POLLINATIONS_TEXT_API,
-        { messages: [{ role: 'user', content: query }] },
+        `${GEMINI_API_URL}/${model}:generateContent`,
+        { contents: [{ parts: [{ text: query }] }] },
         {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 30000,
-            responseType: 'text'
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey
+            },
+            timeout: 30000
         }
     );
-    return extractText(response.data);
+    return extractGeminiText(response.data);
 }
 
 function getAIErrorMessage(error) {
     const status = error.response?.status;
-    if (status === 402 || status === 429) {
-        return '❌ The free AI service is rate-limited right now. Please wait a bit and try again.';
+    if (error.code === 'MISSING_GEMINI_API_KEY') {
+        return '❌ Gemini is not configured. Set GEMINI_API_KEY in the bot host environment and restart.';
     }
-    if (status === 413) {
-        return '❌ That question is too long for the free AI service. Please shorten it and try again.';
+    if (error.code === 'PROMPT_BLOCKED') {
+        return '❌ Gemini blocked that prompt. Please rephrase it and try again.';
+    }
+    if (status === 400) {
+        return '❌ Gemini rejected the request. Check the prompt and GEMINI_MODEL setting.';
+    }
+    if (status === 401 || status === 403) {
+        return '❌ Gemini rejected the API key. Verify it and make sure the Gemini API is enabled.';
+    }
+    if (status === 429) {
+        return '❌ Gemini quota or rate limit reached. Check the Google AI Studio quota and try again later.';
     }
     if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-        return '❌ The AI service took too long to respond. Please try again.';
+        return '❌ Gemini took too long to respond. Please try again.';
     }
-    return '❌ The AI service could not return a response. Please try again later.';
+    return '❌ Gemini could not return a response. Please try again later.';
 }
 
 async function aiCommand(sock, chatId, message, options = {}) {
@@ -94,7 +119,7 @@ async function aiCommand(sock, chatId, message, options = {}) {
 
         let answer;
         if (command === '.gemini') {
-            answer = await requestPollinations(query, options);
+            answer = await requestGemini(query, options);
         } else {
             const response = await axios.get(
                 `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(query)}`,
@@ -108,7 +133,11 @@ async function aiCommand(sock, chatId, message, options = {}) {
 
         await sock.sendMessage(chatId, { text: answer }, { quoted: message });
     } catch (error) {
-        console.error(`${command} API error:`, error);
+        console.error(`${command} API error:`, {
+            status: error.response?.status,
+            code: error.code,
+            message: error.message
+        });
         const text = command === '.gemini'
             ? getAIErrorMessage(error)
             : '❌ Failed to get response. Please try again later.';
@@ -117,4 +146,4 @@ async function aiCommand(sock, chatId, message, options = {}) {
 }
 
 module.exports = aiCommand;
-module.exports.requestPollinations = requestPollinations;
+module.exports.requestGemini = requestGemini;

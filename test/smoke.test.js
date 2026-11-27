@@ -200,7 +200,7 @@ test('command manager enables and disables only implemented commands', () => {
   }
 });
 
-test('.gemini uses the no-key AI provider and returns generated text', async () => {
+test('.gemini uses Google Gemini and returns generated text', async () => {
   const sentMessages = [];
   const requests = [];
   const message = {
@@ -215,23 +215,30 @@ test('.gemini uses the no-key AI provider and returns generated text', async () 
   await aiCommand({
     sendMessage: async (...args) => sentMessages.push(args)
   }, 'gemini-chat', message, {
+    apiKey: 'test-gemini-key',
+    model: 'gemini-test-model',
     post: async (...args) => {
       requests.push(args);
       return {
-        data: 'Light bends. Colors separate.'
+        data: {
+          candidates: [{
+            content: { parts: [{ text: 'Light bends.' }, { text: 'Colors separate.' }] }
+          }]
+        }
       };
     }
   });
 
   assert.equal(requests.length, 1);
-  assert.equal(requests[0][0], 'https://text.pollinations.ai/');
-  assert.deepEqual(requests[0][1].messages, [{ role: 'user', content: 'explain rainbows' }]);
+  assert.equal(requests[0][0], 'https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent');
+  assert.deepEqual(requests[0][1].contents, [{ parts: [{ text: 'explain rainbows' }] }]);
+  assert.equal(requests[0][2].headers['x-goog-api-key'], 'test-gemini-key');
   assert.equal(requests[0][2].timeout, 30000);
-  assert.equal(sentMessages.at(-1)[1].text, 'Light bends. Colors separate.');
+  assert.equal(sentMessages.at(-1)[1].text, 'Light bends.\nColors separate.');
   assert.equal(sentMessages.at(-1)[2].quoted, message);
 });
 
-test('.gemini reports free-provider rate limits clearly', async () => {
+test('.gemini reports Google quota errors clearly', async () => {
   const sentMessages = [];
   await aiCommand({
     sendMessage: async (...args) => sentMessages.push(args)
@@ -239,14 +246,43 @@ test('.gemini reports free-provider rate limits clearly', async () => {
     key: { id: 'gemini-message' },
     message: { conversation: '.gemini hi' }
   }, {
+    apiKey: 'test-gemini-key',
     post: async () => {
-      const error = new Error('free quota exhausted');
-      error.response = { status: 402 };
+      const error = new Error('Gemini quota exhausted');
+      error.response = { status: 429 };
       throw error;
     }
   });
 
-  assert.match(sentMessages.at(-1)[1].text, /rate-limited/);
+  assert.match(sentMessages.at(-1)[1].text, /Gemini quota or rate limit reached/);
+});
+
+test('.gemini prompts for an environment key when no key is configured', async () => {
+  const sentMessages = [];
+  const previousGeminiKey = process.env.GEMINI_API_KEY;
+  const previousGoogleKey = process.env.GOOGLE_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+
+  try {
+    await aiCommand({
+      sendMessage: async (...args) => sentMessages.push(args)
+    }, 'gemini-chat', {
+      key: { id: 'gemini-missing-key' },
+      message: { conversation: '.gemini hello' }
+    }, {
+      post: async () => {
+        throw new Error('Should not call the API without a key.');
+      }
+    });
+
+    assert.match(sentMessages.at(-1)[1].text, /GEMINI_API_KEY/);
+  } finally {
+    if (previousGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = previousGeminiKey;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = previousGoogleKey;
+  }
 });
 
 test('.imagine generates an image from an ephemeral WhatsApp prompt', async () => {
@@ -302,7 +338,53 @@ test('.imagine reports temporary provider outages with retry timing', async () =
   });
 
   assert.match(sentMessages.at(-1)[1].text, /temporarily busy/);
-  assert.match(sentMessages.at(-1)[1].text, /retry in 10 seconds/);
+  assert.match(sentMessages.at(-1)[1].text, /Retry in about 10 seconds/);
+});
+
+test('.imagine uses the authenticated Pollinations API key when configured', async () => {
+  const sentMessages = [];
+  const requests = [];
+  await imagineCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'imagine-chat', {
+    key: { id: 'imagine-key-message' },
+    message: { conversation: '.imagine a cat wearing a hat' }
+  }, {
+    apiKey: 'test-pollinations-key',
+    get: async (...args) => {
+      requests.push(args);
+      return {
+        data: Buffer.from('authenticated-image'),
+        headers: { 'content-type': 'image/png' }
+      };
+    }
+  });
+
+  assert.equal(requests.length, 1);
+  const requestUrl = new URL(requests[0][0]);
+  assert.equal(requestUrl.hostname, 'gen.pollinations.ai');
+  assert.equal(requestUrl.searchParams.get('model'), 'tongyi-mai/z-image-turbo');
+  assert.equal(requests[0][1].headers.Authorization, 'Bearer test-pollinations-key');
+  assert.equal(sentMessages.at(-1)[1].image.toString(), 'authenticated-image');
+});
+
+test('.imagine describes free quota retry timing and key-based higher limits', async () => {
+  const sentMessages = [];
+  await imagineCommand({
+    sendMessage: async (...args) => sentMessages.push(args)
+  }, 'imagine-chat', {
+    key: { id: 'imagine-quota-message' },
+    message: { conversation: '.imagine a cat' }
+  }, {
+    get: async () => {
+      const error = new Error('Free quota reached');
+      error.response = { status: 402, headers: { 'retry-after': '45' } };
+      throw error;
+    }
+  });
+
+  assert.match(sentMessages.at(-1)[1].text, /Retry in about 45 seconds/);
+  assert.match(sentMessages.at(-1)[1].text, /POLLINATIONS_API_KEY/);
 });
 
 test('.mnew renders the Jarvis-style runtime header and command categories', async () => {
@@ -1534,7 +1616,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
           mediaKey: Buffer.alloc(32, 3),
           directPath: '/audio-path',
           mimetype: content.mimetype,
-          seconds: 10
+          seconds: 60
         }
       };
     }
@@ -1546,7 +1628,10 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     setImmediate(() => {
       let output;
       if (args.includes('libwebp')) {
-        output = fs.readFileSync(path.join(__dirname, '../assets/stickintro.webp'));
+        const stickerProfile = ffmpegArgs.filter(ffmpegArgsForRun => ffmpegArgsForRun.includes('libwebp')).length - 1;
+        output = stickerProfile < 8
+          ? Buffer.alloc(500 * 1024 + 1)
+          : fs.readFileSync(path.join(__dirname, '../assets/stickintro.webp'));
       } else if (args.includes('s16le')) {
         output = Buffer.alloc(128 * 2);
         for (let sample = 0; sample < 128; sample += 1) {
@@ -1585,17 +1670,23 @@ test('.as sends a video sticker with an embedded audio track', async () => {
       }
     }, 'audio-chat', message);
 
-    assert.equal(ffmpegArgs.length, 3, sentMessages.map(entry => entry[1].text).join(' | '));
+    assert.equal(ffmpegArgs.length, 11, sentMessages.map(entry => entry[1].text).join(' | '));
     assert.ok(ffmpegArgs[0].includes('libwebp'));
     assert.ok(ffmpegArgs[0].includes('-fps_mode'));
     assert.ok(ffmpegArgs[0].includes('passthrough'));
-    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '10');
-    assert.equal(ffmpegArgs[1][ffmpegArgs[1].indexOf('-t') + 1], '10');
-    assert.ok(ffmpegArgs[1].includes('0:a:0'));
-    assert.ok(ffmpegArgs[1].includes('libopus'));
-    assert.ok(ffmpegArgs[1].includes('64k'));
-    assert.ok(ffmpegArgs[1].includes('20'));
-    assert.ok(ffmpegArgs[2].includes('s16le'));
+    assert.equal(ffmpegArgs[0][ffmpegArgs[0].indexOf('-t') + 1], '60');
+    for (const stickerArgs of ffmpegArgs.slice(0, 9)) {
+      assert.equal(stickerArgs[stickerArgs.indexOf('-t') + 1], '60');
+    }
+    assert.ok(ffmpegArgs[4].some(argument => argument.includes('fps=3,scale=384:384')));
+    assert.ok(ffmpegArgs[8].some(argument => argument.includes('fps=1,scale=128:128')));
+    assert.ok(ffmpegArgs[8].some(argument => argument.includes('pad=512:512')));
+    assert.equal(ffmpegArgs[9][ffmpegArgs[9].indexOf('-t') + 1], '60');
+    assert.ok(ffmpegArgs[9].includes('0:a:0'));
+    assert.ok(ffmpegArgs[9].includes('libopus'));
+    assert.ok(ffmpegArgs[9].includes('64k'));
+    assert.ok(ffmpegArgs[9].includes('20'));
+    assert.ok(ffmpegArgs[10].includes('s16le'));
     assert.equal(audioSeconds, undefined);
     assert.equal(sentMessages.length, 1);
     const stickerImage = new (require('node-webpmux').Image)();
@@ -1629,7 +1720,7 @@ test('.as sends a video sticker with an embedded audio track', async () => {
     assert.equal(audioFields.length, 1);
     const embeddedAudio = proto.Message.AudioMessage.decode(audioFields[0]);
     assert.equal(embeddedAudio.mimetype, 'audio/ogg; codecs=opus');
-    assert.equal(embeddedAudio.seconds, 10);
+    assert.equal(embeddedAudio.seconds, 60);
     assert.equal(embeddedAudio.waveform.length, 64);
     assert.equal(Math.max(...embeddedAudio.waveform), 100);
   } finally {

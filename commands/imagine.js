@@ -2,6 +2,8 @@ const axios = require('axios');
 const unwrapEphemeralMessage = require('../lib/unwrapEphemeralMessage');
 
 const POLLINATIONS_IMAGE_API = 'https://image.pollinations.ai/prompt/';
+const POLLINATIONS_AUTH_IMAGE_API = 'https://gen.pollinations.ai/image/';
+const DEFAULT_IMAGE_MODEL = 'tongyi-mai/z-image-turbo';
 
 function getMessageText(message) {
     const content = unwrapEphemeralMessage(message.message || {});
@@ -12,23 +14,39 @@ function getMessageText(message) {
         || '';
 }
 
-function getImageErrorMessage(error) {
+function getRetryAfterSeconds(error) {
+    const rawValue = error.response?.headers?.['retry-after']
+        || error.response?.headers?.get?.('retry-after');
+    if (!rawValue) return null;
+
+    const seconds = Number(rawValue);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds);
+
+    const retryAt = Date.parse(rawValue);
+    if (Number.isNaN(retryAt)) return null;
+    return Math.max(1, Math.ceil((retryAt - Date.now()) / 1000));
+}
+
+function getImageErrorMessage(error, hasApiKey) {
     const status = error.response?.status;
-    if (status === 402 || status === 429) {
-        return '❌ The free image service is rate-limited right now. Please wait a bit and try again.';
+    const retryAfter = getRetryAfterSeconds(error);
+    const retryMessage = retryAfter
+        ? ` Retry in about ${retryAfter} seconds.`
+        : ' Please wait a bit and try again.';
+
+    if (status === 402) {
+        return hasApiKey
+            ? '❌ Pollinations could not process this request because the key balance or budget may be exhausted. Check your account balance and key budget.'
+            : `❌ The free image service has reached its limit.${retryMessage} For higher limits, configure POLLINATIONS_API_KEY with a funded Pollinations account.`;
+    }
+    if (status === 429) {
+        return `❌ The image service is rate-limited.${retryMessage}`;
     }
     if (status === 413) {
         return '❌ That image prompt is too long. Please shorten it and try again.';
     }
     if (status === 503) {
-        const retryAfter = Number(
-            error.response?.headers?.['retry-after']
-            || error.response?.headers?.get?.('retry-after')
-        );
-        const waitMessage = Number.isFinite(retryAfter) && retryAfter > 0
-            ? ` Please retry in ${retryAfter} seconds.`
-            : ' Please try again shortly.';
-        return `❌ The free image service is temporarily busy.${waitMessage}`;
+        return `❌ The image service is temporarily busy.${retryMessage}`;
     }
     if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
         return '❌ Image generation took too long. Please try again.';
@@ -64,12 +82,30 @@ async function imagineCommand(sock, chatId, message, options = {}) {
         imageUrl.searchParams.set('height', '768');
         imageUrl.searchParams.set('safe', 'true');
 
+        const apiKey = options.apiKey || process.env.POLLINATIONS_API_KEY;
+        const requestUrl = apiKey
+            ? new URL(`${POLLINATIONS_AUTH_IMAGE_API}${encodeURIComponent(prompt)}`)
+            : imageUrl;
+        if (apiKey) {
+            requestUrl.searchParams.set(
+                'model',
+                options.model || process.env.POLLINATIONS_IMAGE_MODEL || DEFAULT_IMAGE_MODEL
+            );
+            requestUrl.searchParams.set('width', '768');
+            requestUrl.searchParams.set('height', '768');
+            requestUrl.searchParams.set('safe', 'true');
+        }
+
         const get = options.get || axios.get;
-        const response = await get(imageUrl.toString(), {
+        const requestOptions = {
             responseType: 'arraybuffer',
             timeout: 90000,
             maxContentLength: 10 * 1024 * 1024
-        });
+        };
+        if (apiKey) {
+            requestOptions.headers = { Authorization: `Bearer ${apiKey}` };
+        }
+        const response = await get(requestUrl.toString(), requestOptions);
         const contentType = response.headers?.['content-type'];
         const imageBuffer = Buffer.isBuffer(response.data)
             ? response.data
@@ -90,7 +126,7 @@ async function imagineCommand(sock, chatId, message, options = {}) {
             message: error.message
         });
         await sock.sendMessage(chatId, {
-            text: getImageErrorMessage(error)
+            text: getImageErrorMessage(error, Boolean(options.apiKey || process.env.POLLINATIONS_API_KEY))
         }, { quoted: message });
     }
 }
