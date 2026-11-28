@@ -492,7 +492,7 @@ test('.mnew renders the Jarvis-style runtime header and command categories', asy
       return { id: 'updates@newsletter', name: 'Donix Updates' };
     },
     sendMessage: async (...args) => sentMessages.push(args)
-  }, 'mnew-chat', message);
+  }, 'mnew-chat', message, { randomInt: () => 0 });
 
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0][0], 'mnew-chat');
@@ -504,11 +504,50 @@ test('.mnew renders the Jarvis-style runtime header and command categories', asy
   assert.match(sentMessages[0][1].caption, /GENERAL/);
   assert.match(sentMessages[0][1].caption, /\.mnew/);
   assert.match(sentMessages[0][1].caption, /\.dismenu/);
+  assert.match(sentMessages[0][1].caption, /\.dismenu2/);
   assert.match(sentMessages[0][1].caption, /\.encommand/);
+  assert.match(sentMessages[0][1].caption, /\.encommand2/);
+  assert.doesNotMatch(sentMessages[0][1].caption, /\.discommand2/);
+  assert.ok(sentMessages[0][1].caption.indexOf('.dismenu2') > sentMessages[0][1].caption.indexOf('.dismenu\n'));
+  assert.ok(sentMessages[0][1].caption.indexOf('.encommand2') > sentMessages[0][1].caption.indexOf('.dismenu2'));
+  assert.doesNotMatch(sentMessages[0][1].caption, /SECOND COMMAND SET/);
   assert.match(sentMessages[0][1].caption, /\.as/);
   assert.equal(newsletterRequests.length, 1);
   assert.equal(newsletterRequests[0][0], 'invite');
   assert.equal(sentMessages[0][1].contextInfo.forwardedNewsletterMessageInfo.newsletterJid, 'updates@newsletter');
+});
+
+test('.mnew randomly selects between the current and Jawad-inspired menu layouts per call', async () => {
+  const sentMessages = [];
+  const variants = [0, 1];
+  const randomInt = max => {
+    assert.equal(max, 2);
+    return variants.shift();
+  };
+  const sock = {
+    newsletterMetadata: async () => ({ id: 'updates@newsletter', name: 'Donix Updates' }),
+    sendMessage: async (...args) => sentMessages.push(args)
+  };
+  const message = {
+    key: { id: 'mnew-random-menu-message' },
+    pushName: 'Random Menu User'
+  };
+
+  await newMenuCommand(sock, 'mnew-random-chat', message, { randomInt });
+  await newMenuCommand(sock, 'mnew-random-chat', message, { randomInt });
+  await newMenuCommand(sock, 'mnew-random-chat', message);
+
+  const firstCaption = sentMessages[0][1].caption;
+  const secondCaption = sentMessages[1][1].caption;
+  const defaultCaption = sentMessages[2][1].caption;
+  assert.notEqual(firstCaption, secondCaption);
+  assert.doesNotMatch(firstCaption, /\*ALL MENU\*/);
+  assert.match(secondCaption, /\*ALL MENU\*/);
+  assert.ok(defaultCaption.includes('*ALL MENU*') || defaultCaption.includes('╭━━━〔'));
+  assert.match(secondCaption, /\*🌐 GENERAL\*/);
+  assert.match(secondCaption, /\.dismenu2/);
+  assert.match(secondCaption, /\.encommand2/);
+  assert.equal(variants.length, 0);
 });
 
 test('AFK command records and clears owner status and answers mentions', async () => {

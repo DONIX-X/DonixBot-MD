@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const settings = require('../settings');
@@ -53,7 +54,35 @@ function createCategorySection(title, commands) {
     ].join('\n');
 }
 
-async function newMenuCommand(sock, chatId, message) {
+function createJawadStyleCategorySection(title, commands) {
+    return [
+        `╭──❰ *${title}* ❱`,
+        ...commands.map(command => `│ 🏮 ${command}`),
+        '╰──────────────────⦁'
+    ].join('\n');
+}
+
+function addAlternateControlsToOwnerGroup(groups) {
+    const controls = [
+        '.dismenu2 (view second-set disabled commands)',
+        '.encommand2 <command> (enable a second-set command)'
+    ];
+    let inserted = false;
+
+    return groups.map(group => {
+        if (group.title !== '👑 OWNER') return group;
+        const commands = [...group.commands];
+        const dismenuIndex = commands.findIndex(command => command.split(/\s+/)[0] === '.dismenu');
+        commands.splice(dismenuIndex < 0 ? commands.length : dismenuIndex + 1, 0, ...controls);
+        inserted = true;
+        return { ...group, commands };
+    }).concat(inserted ? [] : [{
+        title: '👑 OWNER',
+        commands: controls
+    }]);
+}
+
+async function newMenuCommand(sock, chatId, message, options = {}) {
     const now = new Date();
     const date = new Intl.DateTimeFormat('en-IN', {
         timeZone: 'Asia/Kolkata',
@@ -64,13 +93,16 @@ async function newMenuCommand(sock, chatId, message) {
         timeStyle: 'medium'
     }).format(now);
     const user = String(message.pushName || 'User').replace(/[\r\n]+/g, ' ').slice(0, 40);
-    const commandGroups = getVisibleCommandGroups();
+    const commandGroups = addAlternateControlsToOwnerGroup(getVisibleCommandGroups());
     const commandCount = commandGroups.reduce((count, group) => count + group.commands.length, 0);
     const categories = commandGroups
         .map(({ title, commands }) => createCategorySection(title, commands))
         .join('\n');
+    const jawadStyleCategories = commandGroups
+        .map(({ title, commands }) => createJawadStyleCategorySection(title, commands))
+        .join('\n\n');
 
-    const menu = [
+    const classicMenu = [
         `╭━━━〔 ${settings.botName || 'DONIX BOT MD'} 〕━━━···▸`,
         '┃╭──────────────···▸',
         `✧│ *ᴏᴡɴᴇʀ :* ${settings.botOwner || 'DONIX'}`,
@@ -85,11 +117,35 @@ async function newMenuCommand(sock, chatId, message) {
         '',
         categories,
         '',
-        'Use .dismenu to view disabled commands; owners can manage them with .encommand and .discommand.',
+        'Use .dismenu or .dismenu2 to view disabled commands. Owners can enable second-set commands with .encommand2 <command>.',
         '',
         '╰━━━━━━━━━━━┈⊷',
         'made with 🤍'
     ].join('\n');
+    const jawadStyleMenu = [
+        `╭━━〔 ${settings.botName || 'DONIX BOT MD'} 〕━━╮`,
+        `│ ✦ *ᴏᴡɴᴇʀ* : ${settings.botOwner || 'DONIX'}`,
+        `│ ✦ *Uꜱᴇʀ* : ${user}`,
+        '│ ✦ *Pʀᴇғɪx* : [ . ]',
+        `│ ✦ *Cᴏᴍᴍᴀɴᴅꜱ* : ${commandCount}`,
+        `│ ✦ *Dᴀᴛᴇ* : ${date}`,
+        `│ ✦ *Tɪᴍᴇ* : ${time}`,
+        `│ ✦ *Uᴘᴛɪᴍᴇ* : ${formatUptime(process.uptime())}`,
+        `│ ✦ *Vᴇʀꜱɪᴏɴ* : v${packageVersion}`,
+        '╰━━━━━━━━━━━━━━━━━━╯',
+        '',
+        '╭──❰ *ALL MENU* ❱',
+        '│ 🏮 Browse commands by category below',
+        '╰───────────────⦁',
+        '',
+        jawadStyleCategories,
+        '',
+        'Use .dismenu or .dismenu2 to view disabled commands. Owners can enable second-set commands with .encommand2 <command>.',
+        '',
+        `╰━━━┈⊷\nPowered by ${settings.botName || 'DONIX BOT MD'}`
+    ].join('\n');
+    const menuVariant = (options.randomInt || crypto.randomInt)(2);
+    const menu = menuVariant === 0 ? classicMenu : jawadStyleMenu;
 
     const contextInfo = await getChannelContext(sock);
     const gifVideoPath = getBotGifVideoPath();
